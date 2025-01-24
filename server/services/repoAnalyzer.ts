@@ -12,23 +12,23 @@ export async function analyzeRepository(
   rules: SecurityRule[]
 ): Promise<{ report: AnalysisReport; tree: TreeNode }> {
   const extractPath = path.join(path.dirname(zipPath), 'extracted');
-  
+
   // Create extraction directory
   await fs.mkdir(extractPath, { recursive: true });
-  
+
   // Extract zip file
   await execAsync(`unzip -q ${zipPath} -d ${extractPath}`);
-  
+
   // Build repository tree
   const tree = await buildDirectoryTree(extractPath);
-  
+
   // Analyze files
   const findings: SecurityFinding[] = [];
   await analyzeFiles(extractPath, rules, findings);
-  
+
   // Calculate overall severity
   const severity = calculateOverallSeverity(findings);
-  
+
   // Create report
   const report: AnalysisReport = {
     repositoryName: path.basename(zipPath, '.zip'),
@@ -36,18 +36,18 @@ export async function analyzeRepository(
     severity,
     timestamp: new Date().toISOString(),
   };
-  
+
   // Cleanup
   await fs.rm(extractPath, { recursive: true, force: true });
   await fs.unlink(zipPath);
-  
+
   return { report, tree };
 }
 
 async function buildDirectoryTree(dir: string): Promise<TreeNode> {
   const name = path.basename(dir);
   const stats = await fs.stat(dir);
-  
+
   if (!stats.isDirectory()) {
     return {
       name,
@@ -55,13 +55,13 @@ async function buildDirectoryTree(dir: string): Promise<TreeNode> {
       type: 'file',
     };
   }
-  
+
   const children = await Promise.all(
     (await fs.readdir(dir))
       .filter(item => !item.startsWith('.') && item !== 'node_modules')
       .map(item => buildDirectoryTree(path.join(dir, item)))
   );
-  
+
   return {
     name,
     path: dir,
@@ -79,33 +79,30 @@ async function analyzeFiles(
   findings: SecurityFinding[]
 ): Promise<void> {
   const entries = await fs.readdir(dir, { withFileTypes: true });
-  
+
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
-    
+
     if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
       await analyzeFiles(fullPath, rules, findings);
       continue;
     }
-    
+
     if (!entry.isFile() || !shouldAnalyzeFile(entry.name)) continue;
-    
+
     const content = await fs.readFile(fullPath, 'utf-8');
-    
+
     for (const rule of rules) {
       try {
-        const pattern = new RegExp(rule.pattern, 'g');
-        if (pattern.test(content)) {
-          const analysis = await analyzeCode(content, rule);
-          if (analysis) {
-            findings.push({
-              ruleId: rule.id,
-              ruleName: rule.name,
-              severity: rule.severity,
-              location: path.relative(dir, fullPath),
-              ...analysis,
-            });
-          }
+        const analysis = await analyzeCode(content, rule);
+        if (analysis) {
+          findings.push({
+            ruleId: rule.id,
+            ruleName: rule.name,
+            severity: rule.severity,
+            location: path.relative(dir, fullPath),
+            ...analysis,
+          });
         }
       } catch (error) {
         console.error(`Error analyzing ${fullPath} with rule ${rule.name}:`, error);

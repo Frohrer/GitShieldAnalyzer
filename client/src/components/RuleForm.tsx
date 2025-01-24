@@ -28,7 +28,6 @@ const formSchema = z.object({
   description: z.string().min(1, 'Description is required'),
   category: z.string().min(1, 'Category is required'),
   severity: z.enum(['low', 'medium', 'high']),
-  pattern: z.string().min(1, 'Pattern is required'),
   llmPrompt: z.string().min(1, 'LLM prompt is required'),
 });
 
@@ -48,7 +47,6 @@ export default function RuleForm({ initialData, onSubmit, onCancel }: Props) {
       description: '',
       category: '',
       severity: 'medium',
-      pattern: '',
       llmPrompt: '',
     },
   });
@@ -138,26 +136,6 @@ export default function RuleForm({ initialData, onSubmit, onCancel }: Props) {
 
           <FormField
             control={form.control}
-            name="pattern"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Pattern</FormLabel>
-                <FormControl>
-                  <Textarea
-                    {...field}
-                    placeholder="SQL pattern or regex to match"
-                  />
-                </FormControl>
-                <FormDescription>
-                  Regular expression or pattern to match in the code
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
             name="llmPrompt"
             render={({ field }) => (
               <FormItem>
@@ -165,11 +143,11 @@ export default function RuleForm({ initialData, onSubmit, onCancel }: Props) {
                 <FormControl>
                   <Textarea
                     {...field}
-                    placeholder="Analyze the following code for SQL injection vulnerabilities..."
+                    placeholder="Analyze the following code for security vulnerabilities..."
                   />
                 </FormControl>
                 <FormDescription>
-                  Prompt to send to the LLM for analysis
+                  Prompt to send to the LLM for analyzing the code
                 </FormDescription>
                 <FormMessage />
               </FormItem>

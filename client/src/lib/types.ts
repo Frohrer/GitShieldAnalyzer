@@ -27,6 +27,5 @@ export interface SecurityRule {
   description: string;
   category: string;
   severity: 'low' | 'medium' | 'high';
-  pattern: string;
   llmPrompt: string;
 }

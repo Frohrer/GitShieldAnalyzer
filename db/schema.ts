@@ -7,7 +7,6 @@ export const securityRules = pgTable("security_rules", {
   description: text("description").notNull(),
   category: text("category").notNull(),
   severity: text("severity").notNull(),
-  pattern: text("pattern").notNull(),
   llmPrompt: text("llm_prompt").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
