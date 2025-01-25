@@ -4,12 +4,16 @@ import { createServer, type Server } from "http";
 import multer from "multer";
 import fs from 'fs/promises';
 import path from 'path';
+import { promisify } from 'util';
+import { exec } from 'child_process';
 import { db } from "@db";
 import { securityRules, analysisResults } from "@db/schema";
 import { analyzeRepository, initWebSocket } from "./services/repoAnalyzer";
 import { generatePDF } from "./services/pdfService";
 import { eq } from "drizzle-orm";
 import type { SecurityRule } from "@/lib/types";
+
+const execAsync = promisify(exec);
 
 // Add multer request type
 interface MulterRequest extends Request {
