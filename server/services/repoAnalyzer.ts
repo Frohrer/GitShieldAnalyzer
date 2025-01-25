@@ -150,8 +150,18 @@ async function analyzeFiles(
           console.log(`Checking if ${entry.name} needs analysis for rule "${rule.name}"`);
 
           // Check if this file has already been analyzed with this rule
-          if (await hasBeenAnalyzed(relativePath, fileHash, repoName, rule.id)) {
-            console.log(`Skipping analysis of ${entry.name} for rule "${rule.name}" - already analyzed`);
+          const { analyzed, findings: existingFindings } = await hasBeenAnalyzed(
+            relativePath,
+            fileHash,
+            repoName,
+            rule.id
+          );
+
+          if (analyzed) {
+            console.log(`Using cached analysis for ${entry.name} with rule "${rule.name}"`);
+            if (existingFindings && existingFindings.length > 0) {
+              findings.push(...existingFindings);
+            }
             continue;
           }
 
@@ -159,12 +169,10 @@ async function analyzeFiles(
           try {
             const analysis = await analyzeCode(content, rule);
 
-            // Record that we analyzed this file with this rule
-            await recordAnalysis(relativePath, fileHash, repoName, rule.id);
-
+            let fileFindings: SecurityFinding[] = [];
             if (analysis) {
               console.log(`Found vulnerability in ${entry.name} using rule "${rule.name}"`);
-              findings.push({
+              const finding: SecurityFinding = {
                 ruleId: rule.id,
                 ruleName: rule.name,
                 severity: rule.severity,
@@ -173,9 +181,14 @@ async function analyzeFiles(
                 recommendation: analysis.recommendation,
                 lineNumber: analysis.lineNumber,
                 codeSnippet: analysis.codeSnippet,
-                fileContent: content, // Include full file content for Monaco editor
-              });
+                fileContent: content,
+              };
+              fileFindings.push(finding);
+              findings.push(finding);
             }
+
+            // Record analysis result with any findings
+            await recordAnalysis(relativePath, fileHash, repoName, rule.id, fileFindings);
           } catch (error) {
             console.error(`Error analyzing ${fullPath} with rule ${rule.name}:`, error);
           }

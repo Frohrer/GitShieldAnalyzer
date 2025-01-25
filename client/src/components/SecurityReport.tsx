@@ -9,9 +9,10 @@ import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, CheckCircle, XCircle, Code } from 'lucide-react';
+import { AlertTriangle, CheckCircle, XCircle, Code, FileDown } from 'lucide-react';
 import type { AnalysisReport, SecurityFinding } from '@/lib/types';
 import CodeViewer from './CodeViewer';
+import { useToast } from '@/hooks/use-toast';
 
 interface Props {
   report: AnalysisReport;
@@ -19,6 +20,7 @@ interface Props {
 
 export default function SecurityReport({ report }: Props) {
   const [selectedFinding, setSelectedFinding] = useState<SecurityFinding | null>(null);
+  const { toast } = useToast();
 
   const severityIcon = useMemo(() => ({
     high: <XCircle className="h-4 w-4 text-destructive" />,
@@ -35,16 +37,51 @@ export default function SecurityReport({ report }: Props) {
     }, {} as Record<string, SecurityFinding[]>);
   }, [report.findings]);
 
+  const handleDownloadPDF = async () => {
+    try {
+      const response = await fetch(`/api/report/${report.repositoryName}/pdf`);
+      if (!response.ok) throw new Error('Failed to generate PDF');
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${report.repositoryName}-security-report.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('PDF download error:', error);
+      toast({
+        title: 'Failed to download PDF',
+        description: 'Could not generate the security report PDF.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Security Analysis Report</h2>
-        <Badge
-          variant={report.severity === 'high' ? 'destructive' : 'secondary'}
-          className="text-xs"
-        >
-          {report.severity.toUpperCase()} RISK
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge
+            variant={report.severity === 'high' ? 'destructive' : 'secondary'}
+            className="text-xs"
+          >
+            {report.severity.toUpperCase()} RISK
+          </Badge>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDownloadPDF}
+            className="gap-2"
+          >
+            <FileDown className="h-4 w-4" />
+            Export PDF
+          </Button>
+        </div>
       </div>
 
       <Alert>

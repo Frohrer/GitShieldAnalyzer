@@ -35,6 +35,7 @@ export const fileRuleAnalyses = pgTable("file_rule_analyses", {
   id: serial("id").primaryKey(),
   fileId: integer("file_id").notNull().references(() => analyzedFiles.id),
   ruleId: integer("rule_id").notNull().references(() => securityRules.id),
+  findings: jsonb("findings").$type<SecurityFinding[]>(), // Store findings if vulnerabilities were found
   analyzedAt: timestamp("analyzed_at").defaultNow().notNull(),
 });
 
