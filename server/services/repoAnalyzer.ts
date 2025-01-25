@@ -100,7 +100,7 @@ export async function analyzeRepository(
     console.log('Repository structure:', JSON.stringify(tree, null, 2));
 
     // Check if the repository has any analyzable content
-    const hasAnalyzableContent = await hasAnalyzableFiles(tree);
+    const hasAnalyzableContent = await hasAnalyzableFiles(extractPath);
     if (!hasAnalyzableContent) {
       throw new Error('No analyzable files found in the repository. Please ensure it contains supported source code files.');
     }
@@ -151,17 +151,24 @@ export async function analyzeRepository(
   }
 }
 
-async function hasAnalyzableFiles(tree: TreeNode): Promise<boolean> {
-  if (tree.type === 'file') {
-    return shouldAnalyzeFile(tree.name);
-  }
+async function hasAnalyzableFiles(dir: string): Promise<boolean> {
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
 
-  if (tree.children) {
-    for (const child of tree.children) {
-      if (await hasAnalyzableFiles(child)) {
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+
+      // Skip .git and node_modules directories
+      if (entry.isDirectory() && !['node_modules', '.git'].includes(entry.name)) {
+        // Recursively check subdirectories
+        const hasFiles = await hasAnalyzableFiles(fullPath);
+        if (hasFiles) return true;
+      } else if (entry.isFile() && shouldAnalyzeFile(entry.name)) {
         return true;
       }
     }
+  } catch (error) {
+    console.error(`Error checking directory ${dir}:`, error);
   }
 
   return false;
