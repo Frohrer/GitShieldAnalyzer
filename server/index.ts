@@ -12,10 +12,6 @@ app.use(express.urlencoded({ extended: false }));
 // Database initialization function
 async function initializeDatabase() {
   try {
-    if (!process.env.DATABASE_URL) {
-      throw new Error("DATABASE_URL must be set");
-    }
-
     // Check if tables exist
     try {
       const tables = await db.execute(sql`
