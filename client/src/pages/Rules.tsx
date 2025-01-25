@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Link } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,15 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Shield, ArrowLeft, Plus, Pencil, Trash2 } from 'lucide-react';
+import {
+  Shield,
+  ArrowLeft,
+  Plus,
+  Pencil,
+  Trash2,
+  Download,
+  Upload,
+} from 'lucide-react';
 import RuleForm from '@/components/RuleForm';
 import { Dialog, DialogTrigger } from '@/components/ui/dialog';
 import {
@@ -32,6 +40,7 @@ export default function Rules() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedRule, setSelectedRule] = useState<SecurityRule | null>(null);
   const [deleteRuleId, setDeleteRuleId] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -89,6 +98,80 @@ export default function Rules() {
     },
   });
 
+  const importRules = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append('rules', file);
+
+      const res = await fetch('/api/rules/import', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || 'Failed to import rules');
+      }
+
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/rules'] });
+      toast({ title: 'Rules imported successfully' });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Failed to import rules',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const handleExportRules = async () => {
+    try {
+      const response = await fetch('/api/rules/export');
+      if (!response.ok) throw new Error('Failed to export rules');
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'security-rules.json';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Rules export error:', error);
+      toast({
+        title: 'Failed to export rules',
+        description: error instanceof Error ? error.message : 'Unknown error occurred',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleImportRules = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.json')) {
+      toast({
+        title: 'Invalid file type',
+        description: 'Please upload a JSON file',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    importRules.mutate(file);
+    // Reset the file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border">
@@ -104,13 +187,38 @@ export default function Rules() {
               <h1 className="text-xl font-bold">Security Rules</h1>
             </div>
           </div>
-          <Button onClick={() => {
-            setSelectedRule(null);
-            setIsDialogOpen(true);
-          }}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Rule
-          </Button>
+          <div className="flex items-center gap-2">
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="hidden"
+              accept=".json"
+              onChange={handleImportRules}
+            />
+            <Button
+              variant="outline"
+              onClick={() => fileInputRef.current?.click()}
+              className="gap-2"
+            >
+              <Upload className="h-4 w-4" />
+              Import Rules
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleExportRules}
+              className="gap-2"
+            >
+              <Download className="h-4 w-4" />
+              Export Rules
+            </Button>
+            <Button onClick={() => {
+              setSelectedRule(null);
+              setIsDialogOpen(true);
+            }}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Rule
+            </Button>
+          </div>
         </div>
       </header>
 

@@ -2,6 +2,7 @@ import type { Express, Request } from "express";
 import express from "express";
 import { createServer, type Server } from "http";
 import multer from "multer";
+import fs from 'fs'; //Import fs module
 import { db } from "@db";
 import { securityRules, analysisResults } from "@db/schema";
 import { analyzeRepository } from "./services/repoAnalyzer";
@@ -36,7 +37,7 @@ export function registerRoutes(app: Express): Server {
       const rules = await db.query.securityRules.findMany();
       res.json(rules.map(rule => ({
         ...rule,
-        severity: rule.severity as SecurityRule['severity'] // Type cast severity
+        severity: rule.severity as SecurityRule['severity']
       })));
     } catch (error) {
       console.error('Failed to fetch rules:', error);
@@ -78,6 +79,74 @@ export function registerRoutes(app: Express): Server {
       console.error('Failed to delete rule:', error);
       res.status(500).json({ message: "Failed to delete rule" });
     }
+  });
+
+  // New endpoint to export rules
+  app.get("/api/rules/export", async (_req, res) => {
+    try {
+      const rules = await db.query.securityRules.findMany();
+
+      // Convert to SecurityRule type and remove id/timestamps
+      const exportableRules = rules.map(({ id, createdAt, updatedAt, ...rule }) => ({
+        ...rule,
+        severity: rule.severity as SecurityRule['severity']
+      }));
+
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename=security-rules.json'
+      );
+      res.json(exportableRules);
+    } catch (error) {
+      console.error('Failed to export rules:', error);
+      res.status(500).json({ message: "Failed to export rules" });
+    }
+  });
+
+  // New endpoint to import rules
+  const rulesUpload = upload.single('rules');
+  app.post("/api/rules/import", (req, res) => {
+    rulesUpload(req as MulterRequest, res, async (err) => {
+      if (err) {
+        return res.status(400).json({
+          message: `Upload error: ${err.message}`
+        });
+      }
+
+      const multerReq = req as MulterRequest;
+      if (!multerReq.file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      try {
+        const fileContent = await fs.promises.readFile(multerReq.file.path, 'utf-8');
+        const rules = JSON.parse(fileContent);
+
+        if (!Array.isArray(rules)) {
+          throw new Error('Invalid rules file format. Expected an array of rules.');
+        }
+
+        // Insert all rules, ignoring any existing ids
+        const insertedRules = await db.insert(securityRules)
+          .values(rules.map(({ id, createdAt, updatedAt, ...rule }) => rule))
+          .returning();
+
+        res.json(insertedRules);
+      } catch (error) {
+        console.error('Failed to import rules:', error);
+        res.status(500).json({
+          message: error instanceof Error ? error.message : "Failed to import rules"
+        });
+      } finally {
+        // Clean up uploaded file
+        try {
+          await fs.promises.unlink(multerReq.file.path);
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
+    });
   });
 
   // Repository analysis endpoint with custom error handling
