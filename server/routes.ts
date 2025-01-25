@@ -58,8 +58,10 @@ export function registerRoutes(app: Express): Server {
       // Create download directory
       await fs.mkdir(downloadPath, { recursive: true });
 
-      // Download repository with proper options for full Git data
-      await downloadRepo(`${owner}/${repoName}`, downloadPath, { 
+      console.log(`Downloading repository: ${owner}/${repoName} to ${downloadPath}`);
+
+      // Download repository using direct HTTPS URL
+      await downloadRepo(`direct:https://github.com/${owner}/${repoName}.git`, downloadPath, { 
         clone: true,
         cloneOptions: { '--depth': '1' }
       });
