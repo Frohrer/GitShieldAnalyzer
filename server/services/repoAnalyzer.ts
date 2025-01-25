@@ -14,49 +14,6 @@ interface RepoMetadata {
   url?: string;
 }
 
-async function getRepositoryName(extractPath: string, metadata?: RepoMetadata): Promise<string> {
-  // If we have metadata from GitHub, use that first
-  if (metadata?.repoName) {
-    return metadata.repoName;
-  }
-
-  try {
-    // Try to get the name from git config if it exists
-    const gitConfigPath = path.join(extractPath, '.git', 'config');
-    try {
-      const gitConfig = await fs.readFile(gitConfigPath, 'utf-8');
-      const urlMatch = gitConfig.match(/url\s*=\s*.*?([^/]+?)(?:\.git)?$/m);
-      if (urlMatch) {
-        return urlMatch[1];
-      }
-    } catch {
-      // Git config doesn't exist or can't be read, continue to fallback methods
-    }
-
-    // Try to find a package.json and use its name
-    try {
-      const packageJsonPath = path.join(extractPath, 'package.json');
-      const packageJson = JSON.parse(await fs.readFile(packageJsonPath, 'utf-8'));
-      if (packageJson.name) {
-        return packageJson.name;
-      }
-    } catch {
-      // package.json doesn't exist or can't be parsed
-    }
-
-    // Fallback: use the name of the root directory
-    const dirName = path.basename(extractPath);
-    // If the directory is named 'extracted', try its parent
-    if (dirName === 'extracted') {
-      return path.basename(path.dirname(extractPath));
-    }
-    return dirName;
-  } catch (error) {
-    console.error('Error getting repository name:', error);
-    return 'unnamed-repository';
-  }
-}
-
 export async function analyzeRepository(
   sourcePath: string,
   rules: SecurityRule[],
@@ -178,6 +135,49 @@ async function hasAnalyzableFiles(dir: string): Promise<boolean> {
   }
 
   return false;
+}
+
+async function getRepositoryName(extractPath: string, metadata?: RepoMetadata): Promise<string> {
+  // If we have metadata from GitHub, use that first
+  if (metadata?.repoName) {
+    return metadata.repoName;
+  }
+
+  try {
+    // Try to get the name from git config if it exists
+    const gitConfigPath = path.join(extractPath, '.git', 'config');
+    try {
+      const gitConfig = await fs.readFile(gitConfigPath, 'utf-8');
+      const urlMatch = gitConfig.match(/url\s*=\s*.*?([^/]+?)(?:\.git)?$/m);
+      if (urlMatch) {
+        return urlMatch[1];
+      }
+    } catch {
+      // Git config doesn't exist or can't be read, continue to fallback methods
+    }
+
+    // Try to find a package.json and use its name
+    try {
+      const packageJsonPath = path.join(extractPath, 'package.json');
+      const packageJson = JSON.parse(await fs.readFile(packageJsonPath, 'utf-8'));
+      if (packageJson.name) {
+        return packageJson.name;
+      }
+    } catch {
+      // package.json doesn't exist or can't be parsed
+    }
+
+    // Fallback: use the name of the root directory
+    const dirName = path.basename(extractPath);
+    // If the directory is named 'extracted', try its parent
+    if (dirName === 'extracted') {
+      return path.basename(path.dirname(extractPath));
+    }
+    return dirName;
+  } catch (error) {
+    console.error('Error getting repository name:', error);
+    return 'unnamed-repository';
+  }
 }
 
 async function buildDirectoryTree(dir: string): Promise<TreeNode> {
