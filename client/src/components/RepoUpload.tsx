@@ -36,12 +36,16 @@ export default function RepoUpload({ onAnalysisComplete }: Props) {
         body: formData,
       });
 
-      if (!res.ok) throw new Error('Failed to analyze repository');
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.message || 'Failed to analyze repository');
+      }
 
       const data = await res.json();
       onAnalysisComplete(data.report, data.tree);
       toast({ title: 'Analysis complete' });
     } catch (error) {
+      console.error('Repository analysis error:', error);
       toast({
         title: 'Analysis failed',
         description: error instanceof Error ? error.message : 'Unknown error occurred',
@@ -49,13 +53,14 @@ export default function RepoUpload({ onAnalysisComplete }: Props) {
       });
     } finally {
       setIsUploading(false);
+      setProgress(0);
     }
   };
 
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-semibold">Upload Repository</h2>
-      
+
       <div
         className={`border-2 border-dashed rounded-lg p-8 text-center ${
           isUploading ? 'border-primary/50' : 'border-border hover:border-primary/50'
@@ -77,14 +82,16 @@ export default function RepoUpload({ onAnalysisComplete }: Props) {
             if (file) handleUpload(file);
           }}
         />
-        
+
         <label
           htmlFor="repo-upload"
           className="cursor-pointer flex flex-col items-center gap-2"
         >
           <Upload className="h-8 w-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
-            Drag and drop a zip file or click to browse
+            {isUploading 
+              ? 'Analyzing repository...'
+              : 'Drag and drop a zip file or click to browse'}
           </p>
         </label>
       </div>
