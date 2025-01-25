@@ -14,6 +14,7 @@ export async function analyzeRepository(
   const extractPath = path.join(path.dirname(zipPath), 'extracted');
 
   try {
+    console.log('Starting repository analysis');
     // Create extraction directory with proper permissions
     await fs.mkdir(extractPath, { recursive: true, mode: 0o777 });
 
@@ -22,6 +23,7 @@ export async function analyzeRepository(
 
     // Extract zip file with error handling
     try {
+      console.log('Extracting repository...');
       await execAsync(`unzip -o -q "${zipPath}" -d "${extractPath}"`);
       // Set permissions for extracted files
       await execAsync(`chmod -R 777 "${extractPath}"`);
@@ -30,14 +32,17 @@ export async function analyzeRepository(
     }
 
     // Build repository tree
+    console.log('Building repository tree...');
     const tree = await buildDirectoryTree(extractPath);
     if (!tree.children || tree.children.length === 0) {
       throw new Error('The uploaded zip file appears to be empty or invalid.');
     }
 
+    console.log('Starting security analysis...');
     // Analyze files
     const findings: SecurityFinding[] = [];
     await analyzeFiles(extractPath, rules, findings);
+    console.log(`Analysis complete. Found ${findings.length} security issues.`);
 
     // Calculate overall severity
     const severity = calculateOverallSeverity(findings);
@@ -52,6 +57,7 @@ export async function analyzeRepository(
 
     return { report, tree };
   } catch (error) {
+    console.error('Repository analysis failed:', error);
     // Make sure to clean up even if there's an error
     try {
       await fs.rm(extractPath, { recursive: true, force: true });
@@ -120,6 +126,7 @@ async function analyzeFiles(
 ): Promise<void> {
   try {
     const entries = await fs.readdir(dir, { withFileTypes: true });
+    console.log(`Analyzing directory: ${dir}`);
 
     for (const entry of entries) {
       const fullPath = path.join(dir, entry.name);
@@ -132,12 +139,15 @@ async function analyzeFiles(
       if (!entry.isFile() || !shouldAnalyzeFile(entry.name)) continue;
 
       try {
+        console.log(`Analyzing file: ${fullPath}`);
         const content = await fs.readFile(fullPath, 'utf-8');
 
         for (const rule of rules) {
+          console.log(`Applying rule "${rule.name}" to ${entry.name}`);
           try {
             const analysis = await analyzeCode(content, rule);
             if (analysis) {
+              console.log(`Found vulnerability in ${entry.name} using rule "${rule.name}"`);
               findings.push({
                 ruleId: rule.id,
                 ruleName: rule.name,

@@ -8,6 +8,10 @@ interface LLMAnalysis {
   codeSnippet: string;
 }
 
+if (!process.env.OPENAI_API_KEY) {
+  throw new Error('OPENAI_API_KEY is required for security analysis');
+}
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -29,6 +33,8 @@ export async function analyzeCode(
   rule: SecurityRule
 ): Promise<LLMAnalysis | null> {
   try {
+    console.log(`Analyzing code with rule: ${rule.name}`);
+
     const systemPrompt = `You are a security code analyzer. Analyze the following code for ${rule.category} vulnerabilities, focusing on ${rule.name}.
 Your response must be in JSON format with these fields:
 {
@@ -40,6 +46,7 @@ Your response must be in JSON format with these fields:
 
     const userPrompt = `${rule.llmPrompt}\n\nCode to analyze:\n${content}`;
 
+    console.log('Sending request to OpenAI...');
     const completion = await openai.chat.completions.create({
       model: "gpt-4-turbo-preview",
       messages: [
@@ -50,12 +57,20 @@ Your response must be in JSON format with these fields:
       response_format: { type: "json_object" }
     });
 
-    const analysis = JSON.parse(completion.choices[0].message.content);
-
-    if (!analysis.vulnerable) {
+    if (!completion.choices[0]?.message?.content) {
+      console.error('No response content from OpenAI');
       return null;
     }
 
+    console.log('Received response from OpenAI:', completion.choices[0].message.content);
+    const analysis = JSON.parse(completion.choices[0].message.content);
+
+    if (!analysis.vulnerable) {
+      console.log('No vulnerability found');
+      return null;
+    }
+
+    console.log('Vulnerability found:', analysis);
     const { snippet, lineNumber } = extractRelevantLines(content, analysis.lineNumber - 1);
 
     return {
@@ -66,6 +81,7 @@ Your response must be in JSON format with these fields:
     };
   } catch (error) {
     console.error('LLM analysis error:', error);
-    return null;
+    // Re-throw the error to prevent silent failures
+    throw error;
   }
 }
