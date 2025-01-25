@@ -14,12 +14,17 @@ export async function analyzeRepository(
   const extractPath = path.join(path.dirname(zipPath), 'extracted');
 
   try {
-    // Create extraction directory
-    await fs.mkdir(extractPath, { recursive: true });
+    // Create extraction directory with proper permissions
+    await fs.mkdir(extractPath, { recursive: true, mode: 0o777 });
+
+    // Ensure proper permissions for the zip file
+    await fs.chmod(zipPath, 0o666);
 
     // Extract zip file with error handling
     try {
-      await execAsync(`unzip -q "${zipPath}" -d "${extractPath}"`);
+      await execAsync(`unzip -o -q "${zipPath}" -d "${extractPath}"`);
+      // Set permissions for extracted files
+      await execAsync(`chmod -R 777 "${extractPath}"`);
     } catch (error) {
       throw new Error('Failed to extract repository. Please ensure the file is a valid zip archive.');
     }
@@ -67,32 +72,45 @@ export async function analyzeRepository(
 }
 
 async function buildDirectoryTree(dir: string): Promise<TreeNode> {
-  const name = path.basename(dir);
-  const stats = await fs.stat(dir);
+  try {
+    const name = path.basename(dir);
+    const stats = await fs.stat(dir);
 
-  if (!stats.isDirectory()) {
+    if (!stats.isDirectory()) {
+      return {
+        name,
+        path: dir,
+        type: 'file',
+      };
+    }
+
+    const children = await Promise.all(
+      (await fs.readdir(dir))
+        .filter(item => !item.startsWith('.') && item !== 'node_modules')
+        .map(async (item) => {
+          try {
+            return await buildDirectoryTree(path.join(dir, item));
+          } catch (error) {
+            console.error(`Error processing ${item}:`, error);
+            return null;
+          }
+        })
+    );
+
     return {
       name,
       path: dir,
-      type: 'file',
+      type: 'directory',
+      children: children.filter((child): child is TreeNode => child !== null)
+        .sort((a, b) => {
+          if (a.type === b.type) return a.name.localeCompare(b.name);
+          return a.type === 'directory' ? -1 : 1;
+        }),
     };
+  } catch (error) {
+    console.error(`Error building directory tree for ${dir}:`, error);
+    throw error;
   }
-
-  const children = await Promise.all(
-    (await fs.readdir(dir))
-      .filter(item => !item.startsWith('.') && item !== 'node_modules')
-      .map(item => buildDirectoryTree(path.join(dir, item)))
-  );
-
-  return {
-    name,
-    path: dir,
-    type: 'directory',
-    children: children.sort((a, b) => {
-      if (a.type === b.type) return a.name.localeCompare(b.name);
-      return a.type === 'directory' ? -1 : 1;
-    }),
-  };
 }
 
 async function analyzeFiles(
@@ -100,40 +118,44 @@ async function analyzeFiles(
   rules: SecurityRule[],
   findings: SecurityFinding[]
 ): Promise<void> {
-  const entries = await fs.readdir(dir, { withFileTypes: true });
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
 
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
 
-    if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
-      await analyzeFiles(fullPath, rules, findings);
-      continue;
-    }
-
-    if (!entry.isFile() || !shouldAnalyzeFile(entry.name)) continue;
-
-    try {
-      const content = await fs.readFile(fullPath, 'utf-8');
-
-      for (const rule of rules) {
-        try {
-          const analysis = await analyzeCode(content, rule);
-          if (analysis) {
-            findings.push({
-              ruleId: rule.id,
-              ruleName: rule.name,
-              severity: rule.severity,
-              location: path.relative(dir, fullPath),
-              ...analysis,
-            });
-          }
-        } catch (error) {
-          console.error(`Error analyzing ${fullPath} with rule ${rule.name}:`, error);
-        }
+      if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+        await analyzeFiles(fullPath, rules, findings);
+        continue;
       }
-    } catch (error) {
-      console.error(`Error reading file ${fullPath}:`, error);
+
+      if (!entry.isFile() || !shouldAnalyzeFile(entry.name)) continue;
+
+      try {
+        const content = await fs.readFile(fullPath, 'utf-8');
+
+        for (const rule of rules) {
+          try {
+            const analysis = await analyzeCode(content, rule);
+            if (analysis) {
+              findings.push({
+                ruleId: rule.id,
+                ruleName: rule.name,
+                severity: rule.severity,
+                location: path.relative(dir, fullPath),
+                ...analysis,
+              });
+            }
+          } catch (error) {
+            console.error(`Error analyzing ${fullPath} with rule ${rule.name}:`, error);
+          }
+        }
+      } catch (error) {
+        console.error(`Error reading file ${fullPath}:`, error);
+      }
     }
+  } catch (error) {
+    console.error(`Error processing directory ${dir}:`, error);
   }
 }
 
