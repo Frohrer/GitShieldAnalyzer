@@ -29,19 +29,40 @@ export function initWebSocket(server: Server) {
   try {
     wss = new WebSocketServer({ server, path: '/api/analysis-progress' });
     console.log('WebSocket server initialized for analysis progress updates');
+
+    wss.on('connection', (ws) => {
+      console.log('New WebSocket client connected');
+
+      ws.on('error', (error) => {
+        console.error('WebSocket client error:', error);
+      });
+
+      ws.on('close', () => {
+        console.log('WebSocket client disconnected');
+      });
+    });
   } catch (error) {
     console.error('Failed to initialize WebSocket server:', error);
   }
 }
 
 async function broadcastProgress(update: ProgressUpdate) {
-  if (!wss) return;
+  if (!wss) {
+    console.log('No WebSocket server available');
+    return;
+  }
+
   const message = JSON.stringify(update);
+  console.log('Broadcasting progress update:', message);
+
+  let clientCount = 0;
   wss.clients.forEach(client => {
     if (client.readyState === WebSocketServer.OPEN) {
       client.send(message);
+      clientCount++;
     }
   });
+  console.log(`Progress update sent to ${clientCount} clients`);
 }
 
 async function countAnalyzableFiles(dir: string): Promise<number> {
@@ -104,6 +125,8 @@ export async function analyzeRepository(
     // Count total analyzable files
     totalFiles = await countAnalyzableFiles(extractPath);
     console.log(`Total analyzable files: ${totalFiles}`);
+
+    // Send initial progress
     await broadcastProgress({ type: 'progress', current: 0, total: totalFiles });
 
     // Check if the repository has any analyzable content
@@ -113,9 +136,12 @@ export async function analyzeRepository(
 
     console.log('Starting security analysis...');
     const findings: SecurityFinding[] = [];
-    await analyzeFiles(extractPath, rules, findings, (file) => {
+
+    // Analyze files
+    await analyzeFiles(extractPath, rules, findings, async (file) => {
       analyzedFiles++;
-      broadcastProgress({
+      console.log(`Progress: ${analyzedFiles}/${totalFiles} files (${Math.round((analyzedFiles/totalFiles) * 100)}%) - Current: ${file}`);
+      await broadcastProgress({
         type: 'progress',
         current: analyzedFiles,
         total: totalFiles,

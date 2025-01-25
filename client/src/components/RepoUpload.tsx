@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -16,18 +16,33 @@ export default function RepoUpload({ onAnalysisComplete }: Props) {
   const [currentFile, setCurrentFile] = useState<string | null>(null);
   const [githubUrl, setGithubUrl] = useState('');
   const { toast } = useToast();
+  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    let ws: WebSocket | null = null;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 3;
 
     const connectWebSocket = () => {
-      // Use relative URL that works in both development and production
+      if (reconnectAttempts >= maxReconnectAttempts) {
+        console.error('Max WebSocket reconnection attempts reached');
+        return;
+      }
+
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}/api/analysis-progress`;
-      ws = new WebSocket(wsUrl);
+
+      console.log('Connecting to WebSocket:', wsUrl);
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log('WebSocket connected');
+        reconnectAttempts = 0;
+      };
 
       ws.onmessage = (event) => {
         try {
+          console.log('WebSocket message received:', event.data);
           const data = JSON.parse(event.data);
           if (data.type === 'progress') {
             setProgress((data.current / data.total) * 100);
@@ -43,15 +58,27 @@ export default function RepoUpload({ onAnalysisComplete }: Props) {
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
       };
+
+      ws.onclose = (event) => {
+        console.log('WebSocket closed:', event.code, event.reason);
+        wsRef.current = null;
+
+        // Only attempt to reconnect if we're still uploading
+        if (isUploading) {
+          reconnectAttempts++;
+          setTimeout(connectWebSocket, 1000 * Math.min(reconnectAttempts, 3));
+        }
+      };
     };
 
-    if (isUploading) {
+    if (isUploading && !wsRef.current) {
       connectWebSocket();
     }
 
     return () => {
-      if (ws) {
-        ws.close();
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
       }
     };
   }, [isUploading]);
