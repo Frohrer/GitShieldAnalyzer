@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -16,72 +16,27 @@ export default function RepoUpload({ onAnalysisComplete }: Props) {
   const [currentFile, setCurrentFile] = useState<string | null>(null);
   const [githubUrl, setGithubUrl] = useState('');
   const { toast } = useToast();
-  const wsRef = useRef<WebSocket | null>(null);
 
-  useEffect(() => {
-    let reconnectAttempts = 0;
-    const maxReconnectAttempts = 3;
+  const setupWebSocket = () => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${window.location.host}/api/analysis-progress`);
 
-    const connectWebSocket = () => {
-      if (reconnectAttempts >= maxReconnectAttempts) {
-        console.error('Max WebSocket reconnection attempts reached');
-        return;
-      }
-
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/api/analysis-progress`;
-
-      console.log('Connecting to WebSocket:', wsUrl);
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        console.log('WebSocket connected');
-        reconnectAttempts = 0;
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          console.log('WebSocket message received:', event.data);
-          const data = JSON.parse(event.data);
-          if (data.type === 'progress') {
-            setProgress((data.current / data.total) * 100);
-            if (data.file) {
-              setCurrentFile(data.file);
-            }
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'progress') {
+          setProgress((data.current / data.total) * 100);
+          if (data.file) {
+            setCurrentFile(data.file);
           }
-        } catch (error) {
-          console.error('Failed to parse WebSocket message:', error);
         }
-      };
-
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-      };
-
-      ws.onclose = (event) => {
-        console.log('WebSocket closed:', event.code, event.reason);
-        wsRef.current = null;
-
-        // Only attempt to reconnect if we're still uploading
-        if (isUploading) {
-          reconnectAttempts++;
-          setTimeout(connectWebSocket, 1000 * Math.min(reconnectAttempts, 3));
-        }
-      };
-    };
-
-    if (isUploading && !wsRef.current) {
-      connectWebSocket();
-    }
-
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
+      } catch (error) {
+        console.error('WebSocket message error:', error);
       }
     };
-  }, [isUploading]);
+
+    return ws;
+  };
 
   const handleUpload = async (file: File) => {
     if (!file.name.endsWith('.zip')) {
@@ -106,6 +61,7 @@ export default function RepoUpload({ onAnalysisComplete }: Props) {
     setProgress(0);
     setCurrentFile(null);
 
+    const ws = setupWebSocket();
     const formData = new FormData();
     formData.append('repo', file);
 
@@ -136,6 +92,7 @@ export default function RepoUpload({ onAnalysisComplete }: Props) {
       setIsUploading(false);
       setProgress(0);
       setCurrentFile(null);
+      ws.close();
     }
   };
 
@@ -152,6 +109,8 @@ export default function RepoUpload({ onAnalysisComplete }: Props) {
     setIsUploading(true);
     setProgress(0);
     setCurrentFile(null);
+
+    const ws = setupWebSocket();
 
     try {
       const res = await fetch('/api/analyze/github', {
@@ -186,6 +145,7 @@ export default function RepoUpload({ onAnalysisComplete }: Props) {
       setIsUploading(false);
       setProgress(0);
       setCurrentFile(null);
+      ws.close();
     }
   };
 
