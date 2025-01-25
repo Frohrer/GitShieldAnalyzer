@@ -6,8 +6,9 @@ services:
     ports:
       - "5000:5000"
     environment:
-      - DATABASE_URL=postgres://postgres:postgres@db:5432/git_security_analyzer
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/git_security_analyzer?sslmode=disable
       - NODE_ENV=development
+      - PGSSLMODE=disable
     depends_on:
       db:
         condition: service_healthy
@@ -22,6 +23,7 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=git_security_analyzer
+      - PGSSLMODE=disable
     ports:
       - "5432:5432"
     volumes:
@@ -32,6 +34,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    command: ["postgres", "-c", "ssl=off"]
 
 volumes:
   postgres_data:

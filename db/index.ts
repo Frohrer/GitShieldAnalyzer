@@ -20,7 +20,7 @@ const client = postgres({
   max: 10, // Maximum number of connections
   idle_timeout: 20, // Max idle time for connections in seconds
   connect_timeout: 10, // Connection timeout in seconds
-  ssl: { rejectUnauthorized: false }, // Allow self-signed certificates
+  ssl: false, // Completely disable SSL
 });
 
 export const db = drizzle(client, { schema });
