@@ -95,8 +95,14 @@ export async function analyzeRepository(
     // Build repository tree
     console.log('Building repository tree...');
     const tree = await buildDirectoryTree(extractPath);
-    if (!tree.children || tree.children.length === 0) {
-      throw new Error('The repository appears to be empty or invalid.');
+
+    // Debug log the tree structure
+    console.log('Repository structure:', JSON.stringify(tree, null, 2));
+
+    // Check if the repository has any analyzable content
+    const hasAnalyzableContent = await hasAnalyzableFiles(tree);
+    if (!hasAnalyzableContent) {
+      throw new Error('No analyzable files found in the repository. Please ensure it contains supported source code files.');
     }
 
     console.log('Starting security analysis...');
@@ -143,6 +149,22 @@ export async function analyzeRepository(
       }
     }
   }
+}
+
+async function hasAnalyzableFiles(tree: TreeNode): Promise<boolean> {
+  if (tree.type === 'file') {
+    return shouldAnalyzeFile(tree.name);
+  }
+
+  if (tree.children) {
+    for (const child of tree.children) {
+      if (await hasAnalyzableFiles(child)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 async function buildDirectoryTree(dir: string): Promise<TreeNode> {
