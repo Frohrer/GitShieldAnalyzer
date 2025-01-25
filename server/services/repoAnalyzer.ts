@@ -143,7 +143,11 @@ async function analyzeFiles(
                 ruleName: rule.name,
                 severity: rule.severity,
                 location: path.relative(dir, fullPath),
-                ...analysis,
+                description: analysis.description,
+                recommendation: analysis.recommendation,
+                lineNumber: analysis.lineNumber,
+                codeSnippet: analysis.codeSnippet,
+                fileContent: content, // Include full file content for Monaco editor
               });
             }
           } catch (error) {

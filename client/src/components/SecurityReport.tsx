@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Accordion,
   AccordionContent,
@@ -8,14 +8,18 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { AlertTriangle, CheckCircle, XCircle, Code } from 'lucide-react';
 import type { AnalysisReport, SecurityFinding } from '@/lib/types';
+import CodeViewer from './CodeViewer';
 
 interface Props {
   report: AnalysisReport;
 }
 
 export default function SecurityReport({ report }: Props) {
+  const [selectedFinding, setSelectedFinding] = useState<SecurityFinding | null>(null);
+
   const severityIcon = useMemo(() => ({
     high: <XCircle className="h-4 w-4 text-destructive" />,
     medium: <AlertTriangle className="h-4 w-4 text-yellow-500" />,
@@ -68,13 +72,31 @@ export default function SecurityReport({ report }: Props) {
               <AccordionContent className="space-y-4 px-4">
                 {findings.map((finding, index) => (
                   <div key={index} className="space-y-2 border-l-2 pl-4">
-                    <p className="text-sm font-medium">Location: {finding.location}</p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium">
+                        Location: {finding.location} (line {finding.lineNumber})
+                      </p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-primary"
+                        onClick={() => setSelectedFinding(finding)}
+                      >
+                        <Code className="mr-2 h-4 w-4" />
+                        View Code
+                      </Button>
+                    </div>
                     <p className="text-sm text-muted-foreground">
                       {finding.description}
                     </p>
                     <p className="text-sm text-primary">
                       Recommendation: {finding.recommendation}
                     </p>
+                    {finding.codeSnippet && (
+                      <pre className="text-xs bg-muted p-2 rounded-md overflow-x-auto">
+                        <code>{finding.codeSnippet}</code>
+                      </pre>
+                    )}
                   </div>
                 ))}
               </AccordionContent>
@@ -82,6 +104,16 @@ export default function SecurityReport({ report }: Props) {
           ))}
         </Accordion>
       </Card>
+
+      {selectedFinding && selectedFinding.fileContent && (
+        <CodeViewer
+          open={!!selectedFinding}
+          onOpenChange={() => setSelectedFinding(null)}
+          fileName={selectedFinding.location}
+          content={selectedFinding.fileContent}
+          lineNumber={selectedFinding.lineNumber}
+        />
+      )}
     </div>
   );
 }

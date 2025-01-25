@@ -5,6 +5,10 @@ export interface SecurityFinding {
   location: string;
   description: string;
   recommendation: string;
+  // New fields for code context
+  lineNumber: number;
+  codeSnippet: string;
+  fileContent?: string; // Full file content for Monaco editor
 }
 
 export interface AnalysisReport {
