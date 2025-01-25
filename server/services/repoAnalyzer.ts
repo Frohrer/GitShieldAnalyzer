@@ -27,20 +27,24 @@ export async function analyzeRepository(
 
     // If the source is a zip file, extract it
     if (sourcePath.endsWith('.zip')) {
+      console.log('Zip file detected, extracting...');
       extractPath = path.join(path.dirname(sourcePath), 'extracted');
       needsCleanup = true;
 
       // Create extraction directory with proper permissions
       await fs.mkdir(extractPath, { recursive: true, mode: 0o777 });
+      console.log(`Created extraction directory: ${extractPath}`);
 
       // Ensure proper permissions for the zip file
       await fs.chmod(sourcePath, 0o666);
 
       try {
-        console.log('Extracting repository...');
+        console.log(`Extracting ${sourcePath} to ${extractPath}`);
         await execAsync(`unzip -o -q "${sourcePath}" -d "${extractPath}"`);
         await execAsync(`chmod -R 777 "${extractPath}"`);
+        console.log('Extraction complete');
       } catch (error) {
+        console.error('Extraction error:', error);
         throw new Error('Failed to extract repository. Please ensure the file is a valid zip archive.');
       }
     }
@@ -82,26 +86,17 @@ export async function analyzeRepository(
     return { report, tree };
   } catch (error) {
     console.error('Repository analysis failed:', error);
-    if (needsCleanup) {
-      try {
-        await fs.rm(extractPath, { recursive: true, force: true });
-        if (sourcePath.endsWith('.zip')) {
-          await fs.unlink(sourcePath);
-        }
-      } catch {
-        // Ignore cleanup errors
-      }
-    }
     throw error;
   } finally {
-    // Clean up in success case if needed
+    // Clean up in all cases if needed
     if (needsCleanup) {
       try {
         await fs.rm(extractPath, { recursive: true, force: true });
         if (sourcePath.endsWith('.zip')) {
           await fs.unlink(sourcePath);
         }
-      } catch {
+      } catch (cleanupError) {
+        console.error('Cleanup error:', cleanupError);
         // Ignore cleanup errors
       }
     }
