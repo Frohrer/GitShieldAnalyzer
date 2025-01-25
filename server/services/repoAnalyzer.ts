@@ -153,6 +153,7 @@ export async function analyzeRepository(
 
 async function hasAnalyzableFiles(dir: string): Promise<boolean> {
   try {
+    console.log(`Scanning directory for analyzable files: ${dir}`);
     const entries = await fs.readdir(dir, { withFileTypes: true });
 
     for (const entry of entries) {
@@ -160,11 +161,16 @@ async function hasAnalyzableFiles(dir: string): Promise<boolean> {
 
       // Skip .git and node_modules directories
       if (entry.isDirectory() && !['node_modules', '.git'].includes(entry.name)) {
+        console.log(`Checking subdirectory: ${entry.name}`);
         // Recursively check subdirectories
         const hasFiles = await hasAnalyzableFiles(fullPath);
         if (hasFiles) return true;
-      } else if (entry.isFile() && shouldAnalyzeFile(entry.name)) {
-        return true;
+      } else if (entry.isFile()) {
+        console.log(`Checking file: ${entry.name}`);
+        if (shouldAnalyzeFile(entry.name)) {
+          console.log(`Found analyzable file: ${entry.name}`);
+          return true;
+        }
       }
     }
   } catch (error) {
@@ -307,7 +313,9 @@ function shouldAnalyzeFile(filename: string): boolean {
     '.py', '.rb', '.php', '.java',
     '.go', '.cs', '.cpp', '.c',
   ];
-  return extensions.some(ext => filename.endsWith(ext));
+  const isAnalyzable = extensions.some(ext => filename.toLowerCase().endsWith(ext));
+  console.log(`File ${filename} is ${isAnalyzable ? '' : 'not '}analyzable`);
+  return isAnalyzable;
 }
 
 function calculateOverallSeverity(findings: SecurityFinding[]): 'low' | 'medium' | 'high' {
