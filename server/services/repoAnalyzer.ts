@@ -13,35 +13,57 @@ export async function analyzeRepository(
 ): Promise<{ report: AnalysisReport; tree: TreeNode }> {
   const extractPath = path.join(path.dirname(zipPath), 'extracted');
 
-  // Create extraction directory
-  await fs.mkdir(extractPath, { recursive: true });
+  try {
+    // Create extraction directory
+    await fs.mkdir(extractPath, { recursive: true });
 
-  // Extract zip file
-  await execAsync(`unzip -q ${zipPath} -d ${extractPath}`);
+    // Extract zip file with error handling
+    try {
+      await execAsync(`unzip -q "${zipPath}" -d "${extractPath}"`);
+    } catch (error) {
+      throw new Error('Failed to extract repository. Please ensure the file is a valid zip archive.');
+    }
 
-  // Build repository tree
-  const tree = await buildDirectoryTree(extractPath);
+    // Build repository tree
+    const tree = await buildDirectoryTree(extractPath);
+    if (!tree.children || tree.children.length === 0) {
+      throw new Error('The uploaded zip file appears to be empty or invalid.');
+    }
 
-  // Analyze files
-  const findings: SecurityFinding[] = [];
-  await analyzeFiles(extractPath, rules, findings);
+    // Analyze files
+    const findings: SecurityFinding[] = [];
+    await analyzeFiles(extractPath, rules, findings);
 
-  // Calculate overall severity
-  const severity = calculateOverallSeverity(findings);
+    // Calculate overall severity
+    const severity = calculateOverallSeverity(findings);
 
-  // Create report
-  const report: AnalysisReport = {
-    repositoryName: path.basename(zipPath, '.zip'),
-    findings,
-    severity,
-    timestamp: new Date().toISOString(),
-  };
+    // Create report
+    const report: AnalysisReport = {
+      repositoryName: path.basename(zipPath, '.zip'),
+      findings,
+      severity,
+      timestamp: new Date().toISOString(),
+    };
 
-  // Cleanup
-  await fs.rm(extractPath, { recursive: true, force: true });
-  await fs.unlink(zipPath);
-
-  return { report, tree };
+    return { report, tree };
+  } catch (error) {
+    // Make sure to clean up even if there's an error
+    try {
+      await fs.rm(extractPath, { recursive: true, force: true });
+      await fs.unlink(zipPath);
+    } catch {
+      // Ignore cleanup errors
+    }
+    throw error;
+  } finally {
+    // Clean up in success case
+    try {
+      await fs.rm(extractPath, { recursive: true, force: true });
+      await fs.unlink(zipPath);
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
 }
 
 async function buildDirectoryTree(dir: string): Promise<TreeNode> {
@@ -90,23 +112,27 @@ async function analyzeFiles(
 
     if (!entry.isFile() || !shouldAnalyzeFile(entry.name)) continue;
 
-    const content = await fs.readFile(fullPath, 'utf-8');
+    try {
+      const content = await fs.readFile(fullPath, 'utf-8');
 
-    for (const rule of rules) {
-      try {
-        const analysis = await analyzeCode(content, rule);
-        if (analysis) {
-          findings.push({
-            ruleId: rule.id,
-            ruleName: rule.name,
-            severity: rule.severity,
-            location: path.relative(dir, fullPath),
-            ...analysis,
-          });
+      for (const rule of rules) {
+        try {
+          const analysis = await analyzeCode(content, rule);
+          if (analysis) {
+            findings.push({
+              ruleId: rule.id,
+              ruleName: rule.name,
+              severity: rule.severity,
+              location: path.relative(dir, fullPath),
+              ...analysis,
+            });
+          }
+        } catch (error) {
+          console.error(`Error analyzing ${fullPath} with rule ${rule.name}:`, error);
         }
-      } catch (error) {
-        console.error(`Error analyzing ${fullPath} with rule ${rule.name}:`, error);
       }
+    } catch (error) {
+      console.error(`Error reading file ${fullPath}:`, error);
     }
   }
 }
