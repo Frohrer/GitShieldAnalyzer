@@ -60,11 +60,18 @@ export function registerRoutes(app: Express): Server {
 
       console.log(`Downloading repository: ${owner}/${repoName} to ${downloadPath}`);
 
-      // Download repository using direct HTTPS URL
-      await downloadRepo(`direct:https://github.com/${owner}/${repoName}.git`, downloadPath, { 
-        clone: true,
-        cloneOptions: { '--depth': '1' }
-      });
+      try {
+        // Download repository using direct HTTPS URL
+        await downloadRepo(`direct:https://github.com/${owner}/${repoName}.git`, downloadPath, { 
+          clone: true,
+          cloneOptions: { '--depth': '1' }
+        });
+      } catch (downloadError) {
+        console.error('Download error:', downloadError);
+        return res.status(400).json({ 
+          message: "Failed to download repository. Please make sure the repository exists and is public."
+        });
+      }
 
       // Get security rules
       const rules = await db.query.securityRules.findMany();

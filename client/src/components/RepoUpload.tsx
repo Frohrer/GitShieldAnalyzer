@@ -48,7 +48,9 @@ export default function RepoUpload({ onAnalysisComplete }: Props) {
       });
 
       if (!res.ok) {
-        const errorData = await res.json();
+        const errorData = await res.json().catch(() => ({ 
+          message: 'Failed to analyze repository' 
+        }));
         throw new Error(errorData.message || 'Failed to analyze repository');
       }
 
@@ -87,16 +89,21 @@ export default function RepoUpload({ onAnalysisComplete }: Props) {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url: githubUrl }),
+        body: JSON.stringify({ url: githubUrl.trim() }),
       });
 
+      let errorData;
+      try {
+        errorData = await res.json();
+      } catch (e) {
+        throw new Error('Failed to parse server response');
+      }
+
       if (!res.ok) {
-        const errorData = await res.json();
         throw new Error(errorData.message || 'Failed to analyze repository');
       }
 
-      const data = await res.json();
-      onAnalysisComplete(data.report, data.tree);
+      onAnalysisComplete(errorData.report, errorData.tree);
       toast({ title: 'Analysis complete' });
     } catch (error) {
       console.error('GitHub repository analysis error:', error);
