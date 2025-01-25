@@ -1,40 +1,43 @@
-version: '3.8'
+  version: '3.8'
 
-services:
-  app:
-    build: .
-    ports:
-      - "5000:5000"
-    environment:
-      - DATABASE_URL=postgres://postgres:postgres@db:5432/git_security_analyzer?sslmode=disable
-      - NODE_ENV=development
-      - PGSSLMODE=disable
-    depends_on:
-      db:
-        condition: service_healthy
-    volumes:
-      - .:/app
-      - /app/node_modules
-    command: npm run dev
+  services:
+    app:
+      build: .
+      ports:
+        - "5000:5000"
+      environment:
+        - DATABASE_URL=postgres://postgres:postgres@db:5432/git_security_analyzer
+        - NODE_ENV=development
+        - OPENAI_API_KEY=${OPENAI_API_KEY}
+        - PGUSER=${PGUSER}
+        - PGPASSWORD=${PGPASSWORD}
+        - PGHOST=${PGHOST}
+        - PGPORT=${PGPORT}
+        - PGDATABASE=${PGDATABASE}
+      depends_on:
+        db:
+          condition: service_healthy
+      volumes:
+        - .:/app
+        - /app/node_modules
+      command: npm run dev
 
-  db:
-    image: postgres:16
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=git_security_analyzer
-      - PGSSLMODE=disable
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d git_security_analyzer"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    command: ["postgres", "-c", "ssl=off"]
+    db:
+      image: postgres:16
+      environment:
+        - POSTGRES_USER=postgres
+        - POSTGRES_PASSWORD=postgres
+        - POSTGRES_DB=git_security_analyzer
+      ports:
+        - "5432:5432"
+      volumes:
+        - postgres_data:/var/lib/postgresql/data
+        - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      healthcheck:
+        test: ["CMD-SHELL", "pg_isready -U postgres -d git_security_analyzer"]
+        interval: 5s
+        timeout: 5s
+        retries: 5
 
-volumes:
-  postgres_data:
+  volumes:
+    postgres_data:
