@@ -4,7 +4,6 @@ import { createServer, type Server } from "http";
 import multer from "multer";
 import fs from 'fs/promises';
 import path from 'path';
-import download from 'download-git-repo';
 import { promisify } from 'util';
 import { db } from "@db";
 import { securityRules, analysisResults } from "@db/schema";
@@ -12,6 +11,9 @@ import { analyzeRepository } from "./services/repoAnalyzer";
 import { generatePDF } from "./services/pdfService";
 import { eq } from "drizzle-orm";
 import type { SecurityRule } from "@/lib/types";
+import { exec } from 'child_process';
+
+const execAsync = promisify(exec);
 
 // Add multer request type
 interface MulterRequest extends Request {
@@ -25,9 +27,6 @@ const upload = multer({
     fileSize: 100 * 1024 * 1024, // 100MB limit
   }
 });
-
-// Promisify download-git-repo
-const downloadRepo = promisify(download);
 
 export function registerRoutes(app: Express): Server {
   // Configure express to handle larger payloads
@@ -61,10 +60,11 @@ export function registerRoutes(app: Express): Server {
       console.log(`Downloading repository: ${owner}/${repoName} to ${downloadPath}`);
 
       try {
-        // Download repository using direct HTTPS URL without depth limitation
-        await downloadRepo(`direct:https://github.com/${owner}/${repoName}`, downloadPath, { 
-          clone: false
-        });
+        // Use git clone directly with HTTPS URL
+        await execAsync(
+          `git clone https://github.com/${owner}/${repoName}.git ${downloadPath}`,
+          { maxBuffer: 50 * 1024 * 1024 } // 50MB buffer for large repos
+        );
       } catch (downloadError) {
         console.error('Download error:', downloadError);
         return res.status(400).json({ 
