@@ -4,6 +4,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import type { SecurityRule, SecurityFinding, TreeNode, AnalysisReport } from '@/lib/types';
 import { analyzeCode } from './llmService';
+import { calculateFileHash, hasBeenAnalyzed, recordAnalysis } from './fileHashService';
 
 const execAsync = promisify(exec);
 
@@ -141,18 +142,33 @@ async function analyzeFiles(
       try {
         console.log(`Analyzing file: ${fullPath}`);
         const content = await fs.readFile(fullPath, 'utf-8');
+        const fileHash = await calculateFileHash(content);
+        const repoName = path.basename(dir);
+        const relativePath = path.relative(dir, fullPath);
 
         for (const rule of rules) {
+          console.log(`Checking if ${entry.name} needs analysis for rule "${rule.name}"`);
+
+          // Check if this file has already been analyzed with this rule
+          if (await hasBeenAnalyzed(relativePath, fileHash, repoName, rule.id)) {
+            console.log(`Skipping analysis of ${entry.name} for rule "${rule.name}" - already analyzed`);
+            continue;
+          }
+
           console.log(`Applying rule "${rule.name}" to ${entry.name}`);
           try {
             const analysis = await analyzeCode(content, rule);
+
+            // Record that we analyzed this file with this rule
+            await recordAnalysis(relativePath, fileHash, repoName, rule.id);
+
             if (analysis) {
               console.log(`Found vulnerability in ${entry.name} using rule "${rule.name}"`);
               findings.push({
                 ruleId: rule.id,
                 ruleName: rule.name,
                 severity: rule.severity,
-                location: path.relative(dir, fullPath),
+                location: relativePath,
                 description: analysis.description,
                 recommendation: analysis.recommendation,
                 lineNumber: analysis.lineNumber,

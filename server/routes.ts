@@ -1,11 +1,18 @@
-import type { Express } from "express";
+import type { Express, Request } from "express";
 import express from "express";
 import { createServer, type Server } from "http";
 import multer from "multer";
 import { db } from "@db";
 import { securityRules, analysisResults } from "@db/schema";
 import { analyzeRepository } from "./services/repoAnalyzer";
+import { generatePDF } from "./services/pdfService";
 import { eq } from "drizzle-orm";
+import type { SecurityRule } from "@/lib/types";
+
+// Add multer request type
+interface MulterRequest extends Request {
+  file?: Express.Multer.File;
+}
 
 // Configure multer with increased file size limit
 const upload = multer({ 
@@ -27,7 +34,10 @@ export function registerRoutes(app: Express): Server {
   app.get("/api/rules", async (_req, res) => {
     try {
       const rules = await db.query.securityRules.findMany();
-      res.json(rules);
+      res.json(rules.map(rule => ({
+        ...rule,
+        severity: rule.severity as SecurityRule['severity'] // Type cast severity
+      })));
     } catch (error) {
       console.error('Failed to fetch rules:', error);
       res.status(500).json({ message: "Failed to fetch rules" });
@@ -72,7 +82,7 @@ export function registerRoutes(app: Express): Server {
 
   // Repository analysis endpoint with custom error handling
   app.post("/api/analyze", (req, res) => {
-    handleUpload(req, res, async (err) => {
+    handleUpload(req as MulterRequest, res, async (err) => {
       if (err instanceof multer.MulterError) {
         if (err.code === 'LIMIT_FILE_SIZE') {
           return res.status(413).json({
@@ -88,12 +98,13 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      if (!req.file) {
+      const multerReq = req as MulterRequest;
+      if (!multerReq.file) {
         return res.status(400).json({ message: "No file uploaded" });
       }
 
       try {
-        console.log('Starting repository analysis:', req.file.path);
+        console.log('Starting repository analysis:', multerReq.file.path);
         const rules = await db.query.securityRules.findMany();
 
         if (!rules || rules.length === 0) {
@@ -102,7 +113,12 @@ export function registerRoutes(app: Express): Server {
           });
         }
 
-        const { report, tree } = await analyzeRepository(req.file.path, rules);
+        const typedRules = rules.map(rule => ({
+          ...rule,
+          severity: rule.severity as SecurityRule['severity']
+        }));
+
+        const { report, tree } = await analyzeRepository(multerReq.file.path, typedRules);
 
         // Save analysis results
         await db.insert(analysisResults).values({
@@ -120,6 +136,39 @@ export function registerRoutes(app: Express): Server {
         });
       }
     });
+  });
+
+  // New endpoint to generate PDF report
+  app.get("/api/report/:repositoryName/pdf", async (req, res) => {
+    try {
+      const result = await db.query.analysisResults.findFirst({
+        where: eq(analysisResults.repositoryName, req.params.repositoryName),
+      });
+
+      if (!result) {
+        return res.status(404).json({ message: "Analysis report not found" });
+      }
+
+      // Convert the result to expected AnalysisReport format
+      const report = {
+        ...result,
+        timestamp: result.createdAt.toISOString(),
+        severity: result.severity as SecurityRule['severity'],
+        findings: result.findings as any[], // Assuming findings is an array.  Needs better typing.
+      };
+
+      const pdfBuffer = await generatePDF(report);
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename=${result.repositoryName}-security-report.pdf`
+      );
+      res.send(pdfBuffer);
+    } catch (error) {
+      console.error('Failed to generate PDF:', error);
+      res.status(500).json({ message: "Failed to generate PDF report" });
+    }
   });
 
   const httpServer = createServer(app);
