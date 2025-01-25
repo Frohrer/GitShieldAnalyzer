@@ -42,12 +42,12 @@ interface Props {
 export default function RuleForm({ initialData, onSubmit, onCancel }: Props) {
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
-    defaultValues: initialData || {
-      name: '',
-      description: '',
-      category: '',
-      severity: 'medium',
-      llmPrompt: '',
+    defaultValues: {
+      name: initialData?.name ?? '',
+      description: initialData?.description ?? '',
+      category: initialData?.category ?? '',
+      severity: initialData?.severity ?? 'medium',
+      llmPrompt: initialData?.llmPrompt ?? '',
     },
   });
 
