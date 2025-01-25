@@ -33,9 +33,13 @@ export const analyzedFiles = pgTable("analyzed_files", {
 // New table for tracking which rules were applied to which files
 export const fileRuleAnalyses = pgTable("file_rule_analyses", {
   id: serial("id").primaryKey(),
-  fileId: integer("file_id").notNull().references(() => analyzedFiles.id),
-  ruleId: integer("rule_id").notNull().references(() => securityRules.id),
-  findings: jsonb("findings").$type<SecurityFinding[]>(), // Store findings if vulnerabilities were found
+  fileId: integer("file_id")
+    .notNull()
+    .references(() => analyzedFiles.id, { onDelete: 'cascade' }),
+  ruleId: integer("rule_id")
+    .notNull()
+    .references(() => securityRules.id, { onDelete: 'cascade' }),
+  findings: jsonb("findings").$type<SecurityFinding[]>(),
   analyzedAt: timestamp("analyzed_at").defaultNow().notNull(),
 });
 

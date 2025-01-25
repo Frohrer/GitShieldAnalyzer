@@ -21,7 +21,7 @@ import {
   Upload,
 } from 'lucide-react';
 import RuleForm from '@/components/RuleForm';
-import { Dialog, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog } from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -62,13 +62,12 @@ export default function Rules() {
       queryClient.invalidateQueries({ queryKey: ['/api/rules'] });
       toast({ title: 'Rule created successfully' });
       setIsDialogOpen(false);
-      setSelectedRule(null);
     },
   });
 
   const updateRule = useMutation({
-    mutationFn: async (rule: SecurityRule) => {
-      const res = await fetch(`/api/rules/${rule.id}`, {
+    mutationFn: async ({ id, ...rule }: SecurityRule) => {
+      const res = await fetch(`/api/rules/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(rule),
@@ -89,11 +88,22 @@ export default function Rules() {
       const res = await fetch(`/api/rules/${id}`, {
         method: 'DELETE',
       });
-      if (!res.ok) throw new Error('Failed to delete rule');
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || 'Failed to delete rule');
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/rules'] });
       toast({ title: 'Rule deleted successfully' });
+      setDeleteRuleId(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Failed to delete rule',
+        description: error.message,
+        variant: 'destructive',
+      });
       setDeleteRuleId(null);
     },
   });
@@ -273,20 +283,22 @@ export default function Rules() {
         </Card>
 
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <RuleForm
-            initialData={selectedRule ?? undefined}
-            onSubmit={(data) => {
-              if (selectedRule) {
-                updateRule.mutate({ ...data, id: selectedRule.id });
-              } else {
-                createRule.mutate(data);
-              }
-            }}
-            onCancel={() => {
-              setIsDialogOpen(false);
-              setSelectedRule(null);
-            }}
-          />
+          {isDialogOpen && (
+            <RuleForm
+              initialData={selectedRule ?? undefined}
+              onSubmit={(data) => {
+                if (selectedRule) {
+                  updateRule.mutate({ ...data, id: selectedRule.id });
+                } else {
+                  createRule.mutate(data);
+                }
+              }}
+              onCancel={() => {
+                setIsDialogOpen(false);
+                setSelectedRule(null);
+              }}
+            />
+          )}
         </Dialog>
 
         <AlertDialog open={deleteRuleId !== null} onOpenChange={(open) => !open && setDeleteRuleId(null)}>
