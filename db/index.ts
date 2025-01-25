@@ -8,6 +8,11 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-// For Docker local development, use the DATABASE_URL from docker-compose
-const client = postgres(process.env.DATABASE_URL);
+// Create a new postgres client with explicit connection parameters
+const client = postgres(process.env.DATABASE_URL, {
+  max: 10, // Maximum number of connections
+  idle_timeout: 20, // Max idle time for connections
+  connect_timeout: 10, // Connection timeout in seconds
+});
+
 export const db = drizzle(client, { schema });

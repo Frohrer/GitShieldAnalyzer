@@ -12,21 +12,30 @@ app.use(express.urlencoded({ extended: false }));
 // Database initialization function
 async function initializeDatabase() {
   try {
-    // Check if tables exist by querying the schema
-    const tables = await db.execute(sql`
-      SELECT table_name 
-      FROM information_schema.tables 
-      WHERE table_schema = 'public'
-    `);
+    if (!process.env.DATABASE_URL) {
+      throw new Error("DATABASE_URL must be set");
+    }
 
-    if (tables.length === 0) {
-      log('Initializing database tables...');
-      // Use the SQL from init.sql to create tables
-      const initSql = await fs.promises.readFile('./init.sql', 'utf-8');
-      await db.execute(sql.raw(initSql));
-      log('Database tables initialized successfully');
-    } else {
-      log('Database tables already exist');
+    // Check if tables exist
+    try {
+      const tables = await db.execute(sql`
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public'
+      `);
+
+      if (tables.length === 0) {
+        log('Initializing database tables...');
+        // Use the SQL from init.sql to create tables
+        const initSql = await fs.promises.readFile('./init.sql', 'utf-8');
+        await db.execute(sql.raw(initSql));
+        log('Database tables initialized successfully');
+      } else {
+        log('Database tables already exist');
+      }
+    } catch (err) {
+      console.error('Error checking/creating tables:', err);
+      throw new Error(`Failed to initialize tables: ${err instanceof Error ? err.message : String(err)}`);
     }
   } catch (error) {
     console.error('Failed to initialize database:', error);
