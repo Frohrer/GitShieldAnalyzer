@@ -8,5 +8,6 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
+// For Docker local development, use the DATABASE_URL from docker-compose
 const client = postgres(process.env.DATABASE_URL);
 export const db = drizzle(client, { schema });

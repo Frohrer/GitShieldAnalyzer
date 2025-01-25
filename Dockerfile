@@ -11,6 +11,9 @@ RUN npm install
 # Copy application code
 COPY . .
 
+# Ensure proper permissions for init.sql
+RUN chmod 644 init.sql
+
 # Build the application
 RUN npm run build
 
