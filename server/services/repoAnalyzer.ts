@@ -5,6 +5,8 @@ import { promisify } from 'util';
 import type { SecurityRule, SecurityFinding, TreeNode, AnalysisReport } from '@/lib/types';
 import { analyzeCode } from './llmService';
 import { calculateFileHash, hasBeenAnalyzed, recordAnalysis } from './fileHashService';
+import { WebSocketServer } from 'ws';
+import type { Server } from 'http';
 
 const execAsync = promisify(exec);
 
@@ -14,6 +16,50 @@ interface RepoMetadata {
   url?: string;
 }
 
+interface ProgressUpdate {
+  type: 'progress';
+  current: number;
+  total: number;
+  file?: string;
+}
+
+let wss: WebSocketServer | null = null;
+
+export function initWebSocket(server: Server) {
+  try {
+    wss = new WebSocketServer({ server, path: '/api/analysis-progress' });
+    console.log('WebSocket server initialized for analysis progress updates');
+  } catch (error) {
+    console.error('Failed to initialize WebSocket server:', error);
+  }
+}
+
+async function broadcastProgress(update: ProgressUpdate) {
+  if (!wss) return;
+  const message = JSON.stringify(update);
+  wss.clients.forEach(client => {
+    if (client.readyState === WebSocketServer.OPEN) {
+      client.send(message);
+    }
+  });
+}
+
+async function countAnalyzableFiles(dir: string): Promise<number> {
+  let count = 0;
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory() && !['node_modules', '.git'].includes(entry.name)) {
+      count += await countAnalyzableFiles(fullPath);
+    } else if (entry.isFile() && shouldAnalyzeFile(entry.name)) {
+      count++;
+    }
+  }
+
+  return count;
+}
+
 export async function analyzeRepository(
   sourcePath: string,
   rules: SecurityRule[],
@@ -21,6 +67,8 @@ export async function analyzeRepository(
 ): Promise<{ report: AnalysisReport; tree: TreeNode }> {
   let extractPath = sourcePath;
   let needsCleanup = false;
+  let totalFiles = 0;
+  let analyzedFiles = 0;
 
   try {
     console.log('Starting repository analysis', { sourcePath, isZip: sourcePath.endsWith('.zip') });
@@ -32,30 +80,20 @@ export async function analyzeRepository(
       needsCleanup = true;
 
       try {
-        // Create extraction directory with proper permissions
         await fs.mkdir(extractPath, { recursive: true, mode: 0o777 });
         console.log(`Created extraction directory: ${extractPath}`);
-
-        // Ensure proper permissions for the zip file
         await fs.chmod(sourcePath, 0o666);
         console.log('Set permissions on zip file');
-
-        // Extract the zip file
-        console.log(`Extracting ${sourcePath} to ${extractPath}`);
         await execAsync(`unzip -o -q "${sourcePath}" -d "${extractPath}"`);
         await execAsync(`chmod -R 777 "${extractPath}"`);
         console.log('Extraction complete');
-
-        // Verify extraction
-        const files = await fs.readdir(extractPath);
-        console.log('Extracted contents:', files);
       } catch (error) {
         console.error('Extraction error:', error);
         throw new Error('Failed to extract repository. Please ensure the file is a valid zip archive.');
       }
     }
 
-    // Get repository name using metadata if available
+    // Get repository name
     const repositoryName = await getRepositoryName(extractPath, metadata);
     console.log('Repository name:', repositoryName);
 
@@ -63,25 +101,31 @@ export async function analyzeRepository(
     console.log('Building repository tree...');
     const tree = await buildDirectoryTree(extractPath);
 
-    // Debug log the tree structure
-    console.log('Repository structure:', JSON.stringify(tree, null, 2));
+    // Count total analyzable files
+    totalFiles = await countAnalyzableFiles(extractPath);
+    console.log(`Total analyzable files: ${totalFiles}`);
+    await broadcastProgress({ type: 'progress', current: 0, total: totalFiles });
 
     // Check if the repository has any analyzable content
-    const hasAnalyzableContent = await hasAnalyzableFiles(extractPath);
-    if (!hasAnalyzableContent) {
+    if (totalFiles === 0) {
       throw new Error('No analyzable files found in the repository. Please ensure it contains supported source code files.');
     }
 
     console.log('Starting security analysis...');
-    // Analyze files
     const findings: SecurityFinding[] = [];
-    await analyzeFiles(extractPath, rules, findings);
-    console.log(`Analysis complete. Found ${findings.length} security issues.`);
+    await analyzeFiles(extractPath, rules, findings, (file) => {
+      analyzedFiles++;
+      broadcastProgress({
+        type: 'progress',
+        current: analyzedFiles,
+        total: totalFiles,
+        file
+      });
+    });
 
-    // Calculate overall severity
+    console.log(`Analysis complete. Found ${findings.length} security issues.`);
     const severity = calculateOverallSeverity(findings);
 
-    // Create report
     const report: AnalysisReport = {
       repositoryName,
       findings,
@@ -94,7 +138,6 @@ export async function analyzeRepository(
     console.error('Repository analysis failed:', error);
     throw error;
   } finally {
-    // Clean up in all cases if needed
     if (needsCleanup) {
       try {
         await fs.rm(extractPath, { recursive: true, force: true });
@@ -103,7 +146,6 @@ export async function analyzeRepository(
         }
       } catch (cleanupError) {
         console.error('Cleanup error:', cleanupError);
-        // Ignore cleanup errors
       }
     }
   }
@@ -229,82 +271,79 @@ async function buildDirectoryTree(dir: string): Promise<TreeNode> {
 async function analyzeFiles(
   dir: string,
   rules: SecurityRule[],
-  findings: SecurityFinding[]
+  findings: SecurityFinding[],
+  onProgress: (file: string) => void
 ): Promise<void> {
-  try {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
-    console.log(`Analyzing directory: ${dir}`);
+  const entries = await fs.readdir(dir, { withFileTypes: true });
 
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
 
-      if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
-        await analyzeFiles(fullPath, rules, findings);
-        continue;
-      }
-
-      if (!entry.isFile() || !shouldAnalyzeFile(entry.name)) continue;
-
-      try {
-        console.log(`Analyzing file: ${fullPath}`);
-        const content = await fs.readFile(fullPath, 'utf-8');
-        const fileHash = await calculateFileHash(content);
-        const repoName = path.basename(dir);
-        const relativePath = path.relative(dir, fullPath);
-
-        for (const rule of rules) {
-          console.log(`Checking if ${entry.name} needs analysis for rule "${rule.name}"`);
-
-          // Check if this file has already been analyzed with this rule
-          const { analyzed, findings: existingFindings } = await hasBeenAnalyzed(
-            relativePath,
-            fileHash,
-            repoName,
-            rule.id
-          );
-
-          if (analyzed) {
-            console.log(`Using cached analysis for ${entry.name} with rule "${rule.name}"`);
-            if (existingFindings && existingFindings.length > 0) {
-              findings.push(...existingFindings);
-            }
-            continue;
-          }
-
-          console.log(`Applying rule "${rule.name}" to ${entry.name}`);
-          try {
-            const analysis = await analyzeCode(content, rule);
-
-            let fileFindings: SecurityFinding[] = [];
-            if (analysis) {
-              console.log(`Found vulnerability in ${entry.name} using rule "${rule.name}"`);
-              const finding: SecurityFinding = {
-                ruleId: rule.id,
-                ruleName: rule.name,
-                severity: rule.severity,
-                location: relativePath,
-                description: analysis.description,
-                recommendation: analysis.recommendation,
-                lineNumber: analysis.lineNumber,
-                codeSnippet: analysis.codeSnippet,
-                fileContent: content,
-              };
-              fileFindings.push(finding);
-              findings.push(finding);
-            }
-
-            // Record analysis result with any findings
-            await recordAnalysis(relativePath, fileHash, repoName, rule.id, fileFindings);
-          } catch (error) {
-            console.error(`Error analyzing ${fullPath} with rule ${rule.name}:`, error);
-          }
-        }
-      } catch (error) {
-        console.error(`Error reading file ${fullPath}:`, error);
-      }
+    if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+      await analyzeFiles(fullPath, rules, findings, onProgress);
+      continue;
     }
-  } catch (error) {
-    console.error(`Error processing directory ${dir}:`, error);
+
+    if (!entry.isFile() || !shouldAnalyzeFile(entry.name)) continue;
+
+    try {
+      console.log(`Analyzing file: ${fullPath}`);
+      onProgress(entry.name);
+      const content = await fs.readFile(fullPath, 'utf-8');
+      const fileHash = await calculateFileHash(content);
+      const repoName = path.basename(dir);
+      const relativePath = path.relative(dir, fullPath);
+
+      for (const rule of rules) {
+        console.log(`Checking if ${entry.name} needs analysis for rule "${rule.name}"`);
+
+        // Check if this file has already been analyzed with this rule
+        const { analyzed, findings: existingFindings } = await hasBeenAnalyzed(
+          relativePath,
+          fileHash,
+          repoName,
+          rule.id
+        );
+
+        if (analyzed) {
+          console.log(`Using cached analysis for ${entry.name} with rule "${rule.name}"`);
+          if (existingFindings && existingFindings.length > 0) {
+            findings.push(...existingFindings);
+          }
+          continue;
+        }
+
+        console.log(`Applying rule "${rule.name}" to ${entry.name}`);
+        try {
+          const analysis = await analyzeCode(content, rule);
+
+          let fileFindings: SecurityFinding[] = [];
+          if (analysis) {
+            console.log(`Found vulnerability in ${entry.name} using rule "${rule.name}"`);
+            const finding: SecurityFinding = {
+              ruleId: rule.id,
+              ruleName: rule.name,
+              severity: rule.severity,
+              location: relativePath,
+              description: analysis.description,
+              recommendation: analysis.recommendation,
+              lineNumber: analysis.lineNumber,
+              codeSnippet: analysis.codeSnippet,
+              fileContent: content,
+            };
+            fileFindings.push(finding);
+            findings.push(finding);
+          }
+
+          // Record analysis result with any findings
+          await recordAnalysis(relativePath, fileHash, repoName, rule.id, fileFindings);
+        } catch (error) {
+          console.error(`Error analyzing ${fullPath} with rule ${rule.name}:`, error);
+        }
+      }
+    } catch (error) {
+      console.error(`Error reading file ${fullPath}:`, error);
+    }
   }
 }
 

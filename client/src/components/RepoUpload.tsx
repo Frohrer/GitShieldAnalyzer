@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -13,8 +13,48 @@ interface Props {
 export default function RepoUpload({ onAnalysisComplete }: Props) {
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [currentFile, setCurrentFile] = useState<string | null>(null);
   const [githubUrl, setGithubUrl] = useState('');
   const { toast } = useToast();
+
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+
+    const connectWebSocket = () => {
+      // Use relative URL that works in both development and production
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/api/analysis-progress`;
+      ws = new WebSocket(wsUrl);
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'progress') {
+            setProgress((data.current / data.total) * 100);
+            if (data.file) {
+              setCurrentFile(data.file);
+            }
+          }
+        } catch (error) {
+          console.error('Failed to parse WebSocket message:', error);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
+    };
+
+    if (isUploading) {
+      connectWebSocket();
+    }
+
+    return () => {
+      if (ws) {
+        ws.close();
+      }
+    };
+  }, [isUploading]);
 
   const handleUpload = async (file: File) => {
     if (!file.name.endsWith('.zip')) {
@@ -26,7 +66,7 @@ export default function RepoUpload({ onAnalysisComplete }: Props) {
       return;
     }
 
-    if (file.size > 100 * 1024 * 1024) { // 100MB in bytes
+    if (file.size > 100 * 1024 * 1024) {
       toast({
         title: 'File too large',
         description: 'Maximum file size is 100MB',
@@ -37,6 +77,7 @@ export default function RepoUpload({ onAnalysisComplete }: Props) {
 
     setIsUploading(true);
     setProgress(0);
+    setCurrentFile(null);
 
     const formData = new FormData();
     formData.append('repo', file);
@@ -67,6 +108,7 @@ export default function RepoUpload({ onAnalysisComplete }: Props) {
     } finally {
       setIsUploading(false);
       setProgress(0);
+      setCurrentFile(null);
     }
   };
 
@@ -82,6 +124,7 @@ export default function RepoUpload({ onAnalysisComplete }: Props) {
 
     setIsUploading(true);
     setProgress(0);
+    setCurrentFile(null);
 
     try {
       const res = await fetch('/api/analyze/github', {
@@ -115,6 +158,7 @@ export default function RepoUpload({ onAnalysisComplete }: Props) {
     } finally {
       setIsUploading(false);
       setProgress(0);
+      setCurrentFile(null);
     }
   };
 
@@ -184,7 +228,12 @@ export default function RepoUpload({ onAnalysisComplete }: Props) {
         <div className="space-y-2">
           <Progress value={progress} />
           <p className="text-sm text-muted-foreground text-center">
-            Analyzing repository...
+            {currentFile 
+              ? `Analyzing ${currentFile}...`
+              : 'Analyzing repository...'}
+          </p>
+          <p className="text-xs text-muted-foreground text-center">
+            {Math.round(progress)}% complete
           </p>
         </div>
       )}

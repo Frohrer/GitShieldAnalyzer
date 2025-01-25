@@ -4,16 +4,12 @@ import { createServer, type Server } from "http";
 import multer from "multer";
 import fs from 'fs/promises';
 import path from 'path';
-import { promisify } from 'util';
 import { db } from "@db";
 import { securityRules, analysisResults } from "@db/schema";
-import { analyzeRepository } from "./services/repoAnalyzer";
+import { analyzeRepository, initWebSocket } from "./services/repoAnalyzer";
 import { generatePDF } from "./services/pdfService";
 import { eq } from "drizzle-orm";
 import type { SecurityRule } from "@/lib/types";
-import { exec } from 'child_process';
-
-const execAsync = promisify(exec);
 
 // Add multer request type
 interface MulterRequest extends Request {
@@ -44,6 +40,12 @@ export function registerRoutes(app: Express): Server {
   // Configure express to handle larger payloads
   app.use(express.json({ limit: '100mb' }));
   app.use(express.urlencoded({ extended: true, limit: '100mb' }));
+
+  // Create HTTP server
+  const httpServer = createServer(app);
+
+  // Initialize WebSocket server
+  initWebSocket(httpServer);
 
   // Handle multer errors
   const handleUpload = upload.single('repo');
@@ -338,6 +340,5 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  const httpServer = createServer(app);
   return httpServer;
 }
