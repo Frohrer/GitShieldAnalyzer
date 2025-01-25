@@ -61,10 +61,9 @@ export function registerRoutes(app: Express): Server {
       console.log(`Downloading repository: ${owner}/${repoName} to ${downloadPath}`);
 
       try {
-        // Download repository using direct HTTPS URL
-        await downloadRepo(`direct:https://github.com/${owner}/${repoName}.git`, downloadPath, { 
-          clone: true,
-          cloneOptions: { '--depth': '1' }
+        // Download repository using direct HTTPS URL without depth limitation
+        await downloadRepo(`direct:https://github.com/${owner}/${repoName}`, downloadPath, { 
+          clone: false
         });
       } catch (downloadError) {
         console.error('Download error:', downloadError);
