@@ -36,19 +36,34 @@ export async function analyzeCode(
     console.log(`Analyzing code with rule: ${rule.name}`);
 
     const systemPrompt = `You are a security code analyzer. Analyze the following code for ${rule.category} vulnerabilities, focusing on ${rule.name}.
-Your response must be in JSON format with these fields:
-{
-  "vulnerable": boolean,
-  "description": "Brief description of the vulnerability if found",
-  "recommendation": "Specific recommendation to fix the issue",
-  "lineNumber": number (the most relevant line number where the issue occurs),
-}`;
+
+    Before analyzing, determine the code's context:
+    1. Is this a web application? (Look for HTTP servers, API endpoints, etc.)
+    2. Is this a database-connected application? (Look for database queries, ORM usage)
+    3. Is this a file system operation? (Look for file read/write operations)
+    4. Is this handling user input? (Look for input parameters, form data)
+
+    Only report vulnerabilities that are relevant to the code's actual context and functionality.
+    For example:
+    - Only report CORS vulnerabilities if this is web application code
+    - Only report SQL injection if there are database operations
+    - Only report path traversal if there are file system operations
+    - Only report XSS if the code handles user input that gets rendered to users
+
+    Your response must be in JSON format with these fields:
+    {
+      "vulnerable": boolean,
+      "description": "Brief description of the vulnerability if found",
+      "recommendation": "Specific recommendation to fix the issue",
+      "lineNumber": number (the most relevant line number where the issue occurs),
+      "context": "String describing the type of application/code analyzed"
+    }`;
 
     const userPrompt = `${rule.llmPrompt}\n\nCode to analyze:\n${content}`;
 
     console.log('Sending request to OpenAI...');
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }
