@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Upload } from 'lucide-react';
+import { Upload, Github } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 import type { AnalysisReport, TreeNode } from '@/lib/types';
 
 interface Props {
@@ -12,6 +13,7 @@ interface Props {
 export default function RepoUpload({ onAnalysisComplete }: Props) {
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [githubUrl, setGithubUrl] = useState('');
   const { toast } = useToast();
 
   const handleUpload = async (file: File) => {
@@ -66,10 +68,73 @@ export default function RepoUpload({ onAnalysisComplete }: Props) {
     }
   };
 
+  const handleGithubAnalysis = async () => {
+    if (!githubUrl.trim()) {
+      toast({
+        title: 'Invalid URL',
+        description: 'Please enter a GitHub repository URL',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsUploading(true);
+    setProgress(0);
+
+    try {
+      const res = await fetch('/api/analyze/github', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: githubUrl }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.message || 'Failed to analyze repository');
+      }
+
+      const data = await res.json();
+      onAnalysisComplete(data.report, data.tree);
+      toast({ title: 'Analysis complete' });
+    } catch (error) {
+      console.error('GitHub repository analysis error:', error);
+      toast({
+        title: 'Analysis failed',
+        description: error instanceof Error ? error.message : 'Unknown error occurred',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsUploading(false);
+      setProgress(0);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-semibold">Upload Repository</h2>
 
+      {/* GitHub URL input */}
+      <div className="flex gap-2">
+        <Input
+          placeholder="Enter GitHub repository URL"
+          value={githubUrl}
+          onChange={(e) => setGithubUrl(e.target.value)}
+          disabled={isUploading}
+        />
+        <Button
+          onClick={handleGithubAnalysis}
+          disabled={isUploading || !githubUrl.trim()}
+        >
+          <Github className="mr-2 h-4 w-4" />
+          Analyze
+        </Button>
+      </div>
+
+      <div className="text-center text-sm text-muted-foreground">or</div>
+
+      {/* File upload area */}
       <div
         className={`border-2 border-dashed rounded-lg p-8 text-center ${
           isUploading ? 'border-primary/50' : 'border-border hover:border-primary/50'

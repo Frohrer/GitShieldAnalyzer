@@ -2,7 +2,10 @@ import type { Express, Request } from "express";
 import express from "express";
 import { createServer, type Server } from "http";
 import multer from "multer";
-import fs from 'fs'; //Import fs module
+import fs from 'fs/promises';
+import path from 'path';
+import download from 'download-git-repo';
+import { promisify } from 'util';
 import { db } from "@db";
 import { securityRules, analysisResults } from "@db/schema";
 import { analyzeRepository } from "./services/repoAnalyzer";
@@ -23,6 +26,9 @@ const upload = multer({
   }
 });
 
+// Promisify download-git-repo
+const downloadRepo = promisify(download);
+
 export function registerRoutes(app: Express): Server {
   // Configure express to handle larger payloads
   app.use(express.json({ limit: '100mb' }));
@@ -30,6 +36,71 @@ export function registerRoutes(app: Express): Server {
 
   // Handle multer errors
   const handleUpload = upload.single('repo');
+
+  // GitHub repository analysis endpoint
+  app.post("/api/analyze/github", async (req, res) => {
+    const { url } = req.body;
+
+    if (!url) {
+      return res.status(400).json({ message: "GitHub URL is required" });
+    }
+
+    // Extract owner/repo from GitHub URL
+    const urlMatch = url.match(/github\.com\/([^/]+\/[^/]+)/);
+    if (!urlMatch) {
+      return res.status(400).json({ message: "Invalid GitHub repository URL" });
+    }
+
+    const repoPath = urlMatch[1];
+    const downloadPath = path.join("/tmp/uploads", Date.now().toString());
+
+    try {
+      // Create download directory
+      await fs.mkdir(downloadPath, { recursive: true });
+
+      // Download repository
+      await downloadRepo(`direct:https://github.com/${repoPath}`, downloadPath, { clone: false });
+
+      // Get security rules
+      const rules = await db.query.securityRules.findMany();
+
+      if (!rules || rules.length === 0) {
+        return res.status(400).json({ 
+          message: "No security rules found. Please create at least one rule before analyzing a repository." 
+        });
+      }
+
+      const typedRules = rules.map(rule => ({
+        ...rule,
+        severity: rule.severity as SecurityRule['severity']
+      }));
+
+      // Analyze repository
+      const { report, tree } = await analyzeRepository(downloadPath, typedRules);
+
+      // Save analysis results
+      await db.insert(analysisResults).values({
+        repositoryName: report.repositoryName,
+        findings: report.findings,
+        severity: report.severity,
+      });
+
+      res.json({ report, tree });
+    } catch (error) {
+      console.error('GitHub repository analysis failed:', error);
+      res.status(500).json({
+        message: error instanceof Error ? error.message : "Failed to analyze GitHub repository",
+        details: error instanceof Error ? error.stack : undefined
+      });
+    } finally {
+      // Clean up downloaded repository
+      try {
+        await fs.rm(downloadPath, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+  });
 
   // Security Rules CRUD endpoints
   app.get("/api/rules", async (_req, res) => {
@@ -120,7 +191,7 @@ export function registerRoutes(app: Express): Server {
       }
 
       try {
-        const fileContent = await fs.promises.readFile(multerReq.file.path, 'utf-8');
+        const fileContent = await fs.readFile(multerReq.file.path, 'utf-8');
         const rules = JSON.parse(fileContent);
 
         if (!Array.isArray(rules)) {
@@ -141,7 +212,7 @@ export function registerRoutes(app: Express): Server {
       } finally {
         // Clean up uploaded file
         try {
-          await fs.promises.unlink(multerReq.file.path);
+          await fs.unlink(multerReq.file.path);
         } catch {
           // Ignore cleanup errors
         }

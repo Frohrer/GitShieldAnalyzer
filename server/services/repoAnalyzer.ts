@@ -47,26 +47,33 @@ async function getRepositoryName(extractPath: string): Promise<string> {
 }
 
 export async function analyzeRepository(
-  zipPath: string,
+  sourcePath: string,
   rules: SecurityRule[]
 ): Promise<{ report: AnalysisReport; tree: TreeNode }> {
-  const extractPath = path.join(path.dirname(zipPath), 'extracted');
+  let extractPath = sourcePath;
+  let needsCleanup = false;
 
   try {
     console.log('Starting repository analysis');
-    // Create extraction directory with proper permissions
-    await fs.mkdir(extractPath, { recursive: true, mode: 0o777 });
 
-    // Ensure proper permissions for the zip file
-    await fs.chmod(zipPath, 0o666);
+    // If the source is a zip file, extract it
+    if (sourcePath.endsWith('.zip')) {
+      extractPath = path.join(path.dirname(sourcePath), 'extracted');
+      needsCleanup = true;
 
-    // Extract zip file with error handling
-    try {
-      console.log('Extracting repository...');
-      await execAsync(`unzip -o -q "${zipPath}" -d "${extractPath}"`);
-      await execAsync(`chmod -R 777 "${extractPath}"`);
-    } catch (error) {
-      throw new Error('Failed to extract repository. Please ensure the file is a valid zip archive.');
+      // Create extraction directory with proper permissions
+      await fs.mkdir(extractPath, { recursive: true, mode: 0o777 });
+
+      // Ensure proper permissions for the zip file
+      await fs.chmod(sourcePath, 0o666);
+
+      try {
+        console.log('Extracting repository...');
+        await execAsync(`unzip -o -q "${sourcePath}" -d "${extractPath}"`);
+        await execAsync(`chmod -R 777 "${extractPath}"`);
+      } catch (error) {
+        throw new Error('Failed to extract repository. Please ensure the file is a valid zip archive.');
+      }
     }
 
     // Get repository name
@@ -77,7 +84,7 @@ export async function analyzeRepository(
     console.log('Building repository tree...');
     const tree = await buildDirectoryTree(extractPath);
     if (!tree.children || tree.children.length === 0) {
-      throw new Error('The uploaded zip file appears to be empty or invalid.');
+      throw new Error('The repository appears to be empty or invalid.');
     }
 
     console.log('Starting security analysis...');
@@ -100,20 +107,28 @@ export async function analyzeRepository(
     return { report, tree };
   } catch (error) {
     console.error('Repository analysis failed:', error);
-    try {
-      await fs.rm(extractPath, { recursive: true, force: true });
-      await fs.unlink(zipPath);
-    } catch {
-      // Ignore cleanup errors
+    if (needsCleanup) {
+      try {
+        await fs.rm(extractPath, { recursive: true, force: true });
+        if (sourcePath.endsWith('.zip')) {
+          await fs.unlink(sourcePath);
+        }
+      } catch {
+        // Ignore cleanup errors
+      }
     }
     throw error;
   } finally {
-    // Clean up in success case
-    try {
-      await fs.rm(extractPath, { recursive: true, force: true });
-      await fs.unlink(zipPath);
-    } catch {
-      // Ignore cleanup errors
+    // Clean up in success case if needed
+    if (needsCleanup) {
+      try {
+        await fs.rm(extractPath, { recursive: true, force: true });
+        if (sourcePath.endsWith('.zip')) {
+          await fs.unlink(sourcePath);
+        }
+      } catch {
+        // Ignore cleanup errors
+      }
     }
   }
 }
