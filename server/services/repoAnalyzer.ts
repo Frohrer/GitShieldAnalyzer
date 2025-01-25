@@ -160,7 +160,8 @@ async function buildDirectoryTree(dir: string): Promise<TreeNode> {
 
     const children = await Promise.all(
       (await fs.readdir(dir))
-        .filter(item => !item.startsWith('.') && item !== 'node_modules')
+        // Only filter node_modules and .git, allow other directories
+        .filter(item => !['node_modules', '.git'].includes(item))
         .map(async (item) => {
           try {
             return await buildDirectoryTree(path.join(dir, item));
@@ -171,15 +172,17 @@ async function buildDirectoryTree(dir: string): Promise<TreeNode> {
         })
     );
 
+    // Only consider the repository empty if there are no visible files/directories
+    const filteredChildren = children.filter((child): child is TreeNode => child !== null);
+
     return {
       name,
       path: dir,
       type: 'directory',
-      children: children.filter((child): child is TreeNode => child !== null)
-        .sort((a, b) => {
-          if (a.type === b.type) return a.name.localeCompare(b.name);
-          return a.type === 'directory' ? -1 : 1;
-        }),
+      children: filteredChildren.sort((a, b) => {
+        if (a.type === b.type) return a.name.localeCompare(b.name);
+        return a.type === 'directory' ? -1 : 1;
+      }),
     };
   } catch (error) {
     console.error(`Error building directory tree for ${dir}:`, error);
