@@ -46,20 +46,23 @@ export function registerRoutes(app: Express): Server {
     }
 
     // Extract owner/repo from GitHub URL
-    const urlMatch = url.match(/github\.com\/([^/]+\/[^/]+)/);
+    const urlMatch = url.match(/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/);
     if (!urlMatch) {
       return res.status(400).json({ message: "Invalid GitHub repository URL" });
     }
 
-    const repoPath = urlMatch[1];
-    const downloadPath = path.join("/tmp/uploads", Date.now().toString());
+    const [, owner, repoName] = urlMatch;
+    const downloadPath = path.join("/tmp/uploads", `${owner}-${repoName}-${Date.now()}`);
 
     try {
       // Create download directory
       await fs.mkdir(downloadPath, { recursive: true });
 
-      // Download repository
-      await downloadRepo(`direct:https://github.com/${repoPath}`, downloadPath, { clone: false });
+      // Download repository with proper options for full Git data
+      await downloadRepo(`${owner}/${repoName}`, downloadPath, { 
+        clone: true,
+        cloneOptions: { '--depth': '1' }
+      });
 
       // Get security rules
       const rules = await db.query.securityRules.findMany();
@@ -75,8 +78,12 @@ export function registerRoutes(app: Express): Server {
         severity: rule.severity as SecurityRule['severity']
       }));
 
-      // Analyze repository
-      const { report, tree } = await analyzeRepository(downloadPath, typedRules);
+      // Pass repository metadata to analyzer
+      const { report, tree } = await analyzeRepository(downloadPath, typedRules, {
+        owner,
+        repoName,
+        url
+      });
 
       // Save analysis results
       await db.insert(analysisResults).values({

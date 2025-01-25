@@ -8,13 +8,24 @@ import { calculateFileHash, hasBeenAnalyzed, recordAnalysis } from './fileHashSe
 
 const execAsync = promisify(exec);
 
-async function getRepositoryName(extractPath: string): Promise<string> {
+interface RepoMetadata {
+  owner?: string;
+  repoName?: string;
+  url?: string;
+}
+
+async function getRepositoryName(extractPath: string, metadata?: RepoMetadata): Promise<string> {
+  // If we have metadata from GitHub, use that first
+  if (metadata?.repoName) {
+    return metadata.repoName;
+  }
+
   try {
     // Try to get the name from git config if it exists
     const gitConfigPath = path.join(extractPath, '.git', 'config');
     try {
       const gitConfig = await fs.readFile(gitConfigPath, 'utf-8');
-      const urlMatch = gitConfig.match(/url\s*=\s*.*?([^/]+?)(\.git)?$/m);
+      const urlMatch = gitConfig.match(/url\s*=\s*.*?([^/]+?)(?:\.git)?$/m);
       if (urlMatch) {
         return urlMatch[1];
       }
@@ -48,7 +59,8 @@ async function getRepositoryName(extractPath: string): Promise<string> {
 
 export async function analyzeRepository(
   sourcePath: string,
-  rules: SecurityRule[]
+  rules: SecurityRule[],
+  metadata?: RepoMetadata
 ): Promise<{ report: AnalysisReport; tree: TreeNode }> {
   let extractPath = sourcePath;
   let needsCleanup = false;
@@ -76,8 +88,8 @@ export async function analyzeRepository(
       }
     }
 
-    // Get repository name
-    const repositoryName = await getRepositoryName(extractPath);
+    // Get repository name using metadata if available
+    const repositoryName = await getRepositoryName(extractPath, metadata);
     console.log('Repository name:', repositoryName);
 
     // Build repository tree
