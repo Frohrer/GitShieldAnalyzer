@@ -24,6 +24,15 @@ export default function RepoUpload({ onAnalysisComplete }: Props) {
       return;
     }
 
+    if (file.size > 100 * 1024 * 1024) { // 100MB in bytes
+      toast({
+        title: 'File too large',
+        description: 'Maximum file size is 100MB',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsUploading(true);
     setProgress(0);
 
@@ -92,6 +101,9 @@ export default function RepoUpload({ onAnalysisComplete }: Props) {
             {isUploading 
               ? 'Analyzing repository...'
               : 'Drag and drop a zip file or click to browse'}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Maximum file size: 100MB
           </p>
         </label>
       </div>
