@@ -23,26 +23,32 @@ export async function analyzeRepository(
   let needsCleanup = false;
 
   try {
-    console.log('Starting repository analysis');
+    console.log('Starting repository analysis', { sourcePath, isZip: sourcePath.endsWith('.zip') });
 
     // If the source is a zip file, extract it
     if (sourcePath.endsWith('.zip')) {
       console.log('Zip file detected, extracting...');
-      extractPath = path.join(path.dirname(sourcePath), 'extracted');
+      extractPath = path.join(path.dirname(sourcePath), 'extracted-' + path.basename(sourcePath, '.zip'));
       needsCleanup = true;
 
-      // Create extraction directory with proper permissions
-      await fs.mkdir(extractPath, { recursive: true, mode: 0o777 });
-      console.log(`Created extraction directory: ${extractPath}`);
-
-      // Ensure proper permissions for the zip file
-      await fs.chmod(sourcePath, 0o666);
-
       try {
+        // Create extraction directory with proper permissions
+        await fs.mkdir(extractPath, { recursive: true, mode: 0o777 });
+        console.log(`Created extraction directory: ${extractPath}`);
+
+        // Ensure proper permissions for the zip file
+        await fs.chmod(sourcePath, 0o666);
+        console.log('Set permissions on zip file');
+
+        // Extract the zip file
         console.log(`Extracting ${sourcePath} to ${extractPath}`);
         await execAsync(`unzip -o -q "${sourcePath}" -d "${extractPath}"`);
         await execAsync(`chmod -R 777 "${extractPath}"`);
         console.log('Extraction complete');
+
+        // Verify extraction
+        const files = await fs.readdir(extractPath);
+        console.log('Extracted contents:', files);
       } catch (error) {
         console.error('Extraction error:', error);
         throw new Error('Failed to extract repository. Please ensure the file is a valid zip archive.');

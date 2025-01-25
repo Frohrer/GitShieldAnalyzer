@@ -20,9 +20,21 @@ interface MulterRequest extends Request {
   file?: Express.Multer.File;
 }
 
-// Configure multer with increased file size limit
+// Configure multer with custom storage
+const storage = multer.diskStorage({
+  destination: '/tmp/uploads/',
+  filename: function (req, file, cb) {
+    // Keep original filename but ensure it's unique with timestamp
+    const uniqueSuffix = `-${Date.now()}`;
+    const ext = path.extname(file.originalname);
+    const basename = path.basename(file.originalname, ext);
+    cb(null, basename + uniqueSuffix + ext);
+  }
+});
+
+// Configure multer with increased file size limit and custom storage
 const upload = multer({ 
-  dest: "/tmp/uploads/",
+  storage,
   limits: {
     fileSize: 100 * 1024 * 1024, // 100MB limit
   }
