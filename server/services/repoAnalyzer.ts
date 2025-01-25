@@ -8,6 +8,44 @@ import { calculateFileHash, hasBeenAnalyzed, recordAnalysis } from './fileHashSe
 
 const execAsync = promisify(exec);
 
+async function getRepositoryName(extractPath: string): Promise<string> {
+  try {
+    // Try to get the name from git config if it exists
+    const gitConfigPath = path.join(extractPath, '.git', 'config');
+    try {
+      const gitConfig = await fs.readFile(gitConfigPath, 'utf-8');
+      const urlMatch = gitConfig.match(/url\s*=\s*.*?([^/]+?)(\.git)?$/m);
+      if (urlMatch) {
+        return urlMatch[1];
+      }
+    } catch {
+      // Git config doesn't exist or can't be read, continue to fallback methods
+    }
+
+    // Try to find a package.json and use its name
+    try {
+      const packageJsonPath = path.join(extractPath, 'package.json');
+      const packageJson = JSON.parse(await fs.readFile(packageJsonPath, 'utf-8'));
+      if (packageJson.name) {
+        return packageJson.name;
+      }
+    } catch {
+      // package.json doesn't exist or can't be parsed
+    }
+
+    // Fallback: use the name of the root directory
+    const dirName = path.basename(extractPath);
+    // If the directory is named 'extracted', try its parent
+    if (dirName === 'extracted') {
+      return path.basename(path.dirname(extractPath));
+    }
+    return dirName;
+  } catch (error) {
+    console.error('Error getting repository name:', error);
+    return 'unnamed-repository';
+  }
+}
+
 export async function analyzeRepository(
   zipPath: string,
   rules: SecurityRule[]
@@ -26,11 +64,14 @@ export async function analyzeRepository(
     try {
       console.log('Extracting repository...');
       await execAsync(`unzip -o -q "${zipPath}" -d "${extractPath}"`);
-      // Set permissions for extracted files
       await execAsync(`chmod -R 777 "${extractPath}"`);
     } catch (error) {
       throw new Error('Failed to extract repository. Please ensure the file is a valid zip archive.');
     }
+
+    // Get repository name
+    const repositoryName = await getRepositoryName(extractPath);
+    console.log('Repository name:', repositoryName);
 
     // Build repository tree
     console.log('Building repository tree...');
@@ -50,7 +91,7 @@ export async function analyzeRepository(
 
     // Create report
     const report: AnalysisReport = {
-      repositoryName: path.basename(zipPath, '.zip'),
+      repositoryName,
       findings,
       severity,
       timestamp: new Date().toISOString(),
@@ -59,7 +100,6 @@ export async function analyzeRepository(
     return { report, tree };
   } catch (error) {
     console.error('Repository analysis failed:', error);
-    // Make sure to clean up even if there's an error
     try {
       await fs.rm(extractPath, { recursive: true, force: true });
       await fs.unlink(zipPath);
