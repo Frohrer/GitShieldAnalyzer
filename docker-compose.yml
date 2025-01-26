@@ -9,11 +9,11 @@
         - DATABASE_URL=postgres://postgres:postgres@db:5432/git_security_analyzer
         - NODE_ENV=development
         - OPENAI_API_KEY=${OPENAI_API_KEY}
-        - PGUSER=${PGUSER}
-        - PGPASSWORD=${PGPASSWORD}
-        - PGHOST=${PGHOST}
-        - PGPORT=${PGPORT}
-        - PGDATABASE=${PGDATABASE}
+        - PGUSER=postgres
+        - PGPASSWORD=postgres
+        - PGHOST=db
+        - PGPORT=5432
+        - PGDATABASE=git_security_analyzer
       depends_on:
         db:
           condition: service_healthy
@@ -28,6 +28,9 @@
         - POSTGRES_USER=postgres
         - POSTGRES_PASSWORD=postgres
         - POSTGRES_DB=git_security_analyzer
+        - PGUSER=postgres
+        - PGPASSWORD=postgres
+        - PGDATABASE=git_security_analyzer
       ports:
         - "5432:5432"
       volumes:

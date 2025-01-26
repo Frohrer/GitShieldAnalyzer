@@ -4,6 +4,7 @@ import { setupVite, serveStatic, log } from "./vite";
 import { db } from "@db";
 import { sql } from "drizzle-orm";
 import * as fs from 'fs';
+import postgres from "postgres";
 
 const app = express();
 app.use(express.json());
@@ -12,7 +13,35 @@ app.use(express.urlencoded({ extended: false }));
 // Database initialization function
 async function initializeDatabase() {
   try {
-    // Check if tables exist
+    // First, connect to the default 'postgres' database to create our database if it doesn't exist
+    const initClient = postgres({
+      host: process.env.PGHOST,
+      port: Number(process.env.PGPORT),
+      user: process.env.PGUSER,
+      password: process.env.PGPASSWORD,
+      database: 'postgres', // Connect to default database first
+      ssl: false,
+    });
+
+    try {
+      // Check if our database exists
+      const dbExists = await initClient`
+        SELECT 1 FROM pg_database WHERE datname = ${process.env.PGDATABASE}
+      `;
+
+      if (dbExists.length === 0) {
+        log('Creating database...');
+        // Use raw string for database name since it's coming from env var
+        const dbName = process.env.PGDATABASE;
+        await initClient.unsafe(`CREATE DATABASE "${dbName}"`);
+        log('Database created successfully');
+      }
+    } finally {
+      // Always close the initial connection
+      await initClient.end();
+    }
+
+    // Now check if tables exist
     try {
       const tables = await db.execute(sql`
         SELECT table_name 
