@@ -12,8 +12,18 @@ if (!process.env.OPENAI_API_KEY) {
   throw new Error('OPENAI_API_KEY is required for security analysis');
 }
 
+if (!process.env.OPENAI_API_VERSION) {
+  throw new Error('OPENAI_API_VERSION is required for security analysis');
+}
+
+if (!process.env.OPENAI_API_BASE) {
+  throw new Error('OPENAI_API_BASE is required for security analysis');
+}
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+  apiVersion: process.env.OPENAI_API_VERSION,
+  baseURL: process.env.OPENAI_API_BASE,
 });
 
 function extractRelevantLines(content: string, startLine: number): { snippet: string, lineNumber: number } {
