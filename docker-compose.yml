@@ -13,8 +13,8 @@ services:
       - OPENAI_API_BASE=${OPENAI_API_BASE}
       - PGUSER=${PGUSER}
       - PGPASSWORD=${PGPASSWORD}
-      - PGHOST=db
-      - PGPORT=5432
+      - PGHOST=${PGHOST}
+      - PGPORT=${PGPORT}
       - PGDATABASE=${PGDATABASE}
     depends_on:
       db:
