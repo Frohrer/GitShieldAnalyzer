@@ -3,6 +3,7 @@ import { Link } from 'wouter';
 import RepoUpload from '@/components/RepoUpload';
 import SecurityReport from '@/components/SecurityReport';
 import RepoTree from '@/components/RepoTree';
+import ScanStatus from '@/components/ScanStatus';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { FileCode2, Shield } from 'lucide-react';
@@ -11,6 +12,11 @@ import type { AnalysisReport, TreeNode } from '@/lib/types';
 export default function Home() {
   const [analysisReport, setAnalysisReport] = useState<AnalysisReport | null>(null);
   const [repoTree, setRepoTree] = useState<TreeNode | null>(null);
+
+  const handleAnalysisComplete = (report: AnalysisReport, tree: TreeNode) => {
+    setAnalysisReport(report);
+    setRepoTree(tree);
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -31,17 +37,15 @@ export default function Home() {
 
       <main className="container mx-auto px-4 py-8">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
+          <div className="space-y-6">
             <Card className="p-6">
-              <RepoUpload
-                onAnalysisComplete={(report, tree) => {
-                  setAnalysisReport(report);
-                  setRepoTree(tree);
-                }}
-              />
+              <RepoUpload onAnalysisComplete={handleAnalysisComplete} />
             </Card>
+
+            <ScanStatus onAnalysisComplete={handleAnalysisComplete} />
+
             {repoTree && (
-              <Card className="mt-6 p-6">
+              <Card className="p-6">
                 <h2 className="text-lg font-semibold mb-4">Repository Structure</h2>
                 <RepoTree tree={repoTree} />
               </Card>

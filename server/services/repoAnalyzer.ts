@@ -7,6 +7,9 @@ import { analyzeCode } from './llmService';
 import { calculateFileHash, hasBeenAnalyzed, recordAnalysis } from './fileHashService';
 import { WebSocketServer } from 'ws';
 import type { Server } from 'http';
+import { db } from '@db';
+import { scanStatus, analysisResults } from '@db/schema';
+import { eq } from 'drizzle-orm';
 
 const execAsync = promisify(exec);
 
@@ -73,12 +76,31 @@ async function countAnalyzableFiles(dir: string): Promise<number> {
   return count;
 }
 
+async function broadcastAndUpdateProgress(
+  scanId: number,
+  update: ProgressUpdate
+): Promise<void> {
+  // Update database
+  await db.update(scanStatus)
+    .set({
+      progress: Math.round((update.current / update.total) * 100),
+      currentFile: update.file,
+      totalFiles: update.total,
+    })
+    .where(eq(scanStatus.id, scanId));
+
+  // Broadcast via WebSocket
+  broadcastProgress(update);
+}
+
 async function analyzeFiles(
   dir: string,
   rules: SecurityRule[],
   findings: SecurityFinding[],
   totalFiles: number,
   processedFiles: { count: number },
+  scanId: number,
+  repositoryName: string,
 ): Promise<void> {
   const entries = await fs.readdir(dir, { withFileTypes: true });
 
@@ -86,7 +108,7 @@ async function analyzeFiles(
     const fullPath = path.join(dir, entry.name);
 
     if (entry.isDirectory() && !['node_modules', '.git'].includes(entry.name)) {
-      await analyzeFiles(fullPath, rules, findings, totalFiles, processedFiles);
+      await analyzeFiles(fullPath, rules, findings, totalFiles, processedFiles, scanId, repositoryName);
       continue;
     }
 
@@ -97,7 +119,7 @@ async function analyzeFiles(
       processedFiles.count++;
 
       // Send progress update
-      broadcastProgress({
+      await broadcastAndUpdateProgress(scanId, {
         type: 'progress',
         current: processedFiles.count,
         total: totalFiles,
@@ -105,14 +127,13 @@ async function analyzeFiles(
       });
 
       const fileHash = await calculateFileHash(content);
-      const repoName = path.basename(dir);
       const relativePath = path.relative(dir, fullPath);
 
       for (const rule of rules) {
         const { analyzed, findings: existingFindings } = await hasBeenAnalyzed(
           relativePath,
           fileHash,
-          repoName,
+          repositoryName,
           rule.id
         );
 
@@ -137,9 +158,9 @@ async function analyzeFiles(
             fileContent: content,
           };
           findings.push(finding);
-          await recordAnalysis(relativePath, fileHash, repoName, rule.id, [finding]);
+          await recordAnalysis(relativePath, fileHash, repositoryName, rule.id, [finding]);
         } else {
-          await recordAnalysis(relativePath, fileHash, repoName, rule.id, []);
+          await recordAnalysis(relativePath, fileHash, repositoryName, rule.id, []);
         }
       }
     } catch (error) {
@@ -153,6 +174,17 @@ export async function analyzeRepository(
   rules: SecurityRule[],
   metadata?: RepoMetadata
 ): Promise<{ report: AnalysisReport; tree: TreeNode }> {
+  const repositoryName = metadata?.repoName || path.basename(sourcePath);
+  
+  // Create scan status record
+  const [scan] = await db.insert(scanStatus)
+    .values({
+      repositoryName,
+      status: 'in_progress',
+      progress: 0,
+    })
+    .returning();
+
   let extractPath = sourcePath;
   let needsCleanup = false;
 
@@ -176,27 +208,60 @@ export async function analyzeRepository(
 
     // Initialize progress tracking
     const processedFiles = { count: 0 };
-    broadcastProgress({ type: 'progress', current: 0, total: totalFiles });
+    await broadcastAndUpdateProgress(scan.id, { 
+      type: 'progress', 
+      current: 0, 
+      total: totalFiles 
+    });
 
     // Build repository tree
     const tree = await buildDirectoryTree(extractPath);
     const findings: SecurityFinding[] = [];
 
     // Analyze files
-    await analyzeFiles(extractPath, rules, findings, totalFiles, processedFiles);
+    await analyzeFiles(extractPath, rules, findings, totalFiles, processedFiles, scan.id, repositoryName);
 
     // Calculate overall severity
     const severity = findings.some(f => f.severity === 'high') ? 'high' :
                     findings.some(f => f.severity === 'medium') ? 'medium' : 'low';
 
     const report: AnalysisReport = {
-      repositoryName: metadata?.repoName || path.basename(extractPath),
+      repositoryName,
       findings,
       severity,
       timestamp: new Date().toISOString(),
     };
 
+    // Save analysis results with scan ID
+    await db.insert(analysisResults)
+      .values({
+        scanId: scan.id,
+        repositoryName: report.repositoryName,
+        findings: report.findings,
+        severity: report.severity,
+      });
+
+    // Update scan status to completed
+    await db.update(scanStatus)
+      .set({
+        status: 'completed',
+        progress: 100,
+        completedAt: new Date(),
+      })
+      .where(eq(scanStatus.id, scan.id));
+
     return { report, tree };
+  } catch (error) {
+    // Update scan status to failed
+    await db.update(scanStatus)
+      .set({
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'Unknown error',
+        completedAt: new Date(),
+      })
+      .where(eq(scanStatus.id, scan.id));
+
+    throw error;
   } finally {
     if (needsCleanup) {
       try {

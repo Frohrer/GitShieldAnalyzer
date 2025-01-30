@@ -1,7 +1,7 @@
 FROM node:20-slim
 
-# Install git
-RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+# Install git and unzip
+RUN apt-get update && apt-get install -y git unzip && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

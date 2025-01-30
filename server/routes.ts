@@ -12,6 +12,7 @@ import { analyzeRepository, initWebSocket } from "./services/repoAnalyzer";
 import { generatePDF } from "./services/pdfService";
 import { eq } from "drizzle-orm";
 import type { SecurityRule } from "@/lib/types";
+import scanRoutes from './routes/api/scan';
 
 const execAsync = promisify(exec);
 
@@ -50,6 +51,9 @@ export function registerRoutes(app: Express): Server {
 
   // Initialize WebSocket server
   initWebSocket(httpServer);
+
+  // Register scan routes
+  app.use('/api/scan', scanRoutes);
 
   // Handle multer errors
   const handleUpload = upload.single('repo');
